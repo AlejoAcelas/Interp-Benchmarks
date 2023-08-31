@@ -37,10 +37,17 @@ def _get_logits_for_labels(logits: Float[Tensor, 'batch pos vocab'],
     return logits[..., pos_label, :]
 
 
-def sample_without_replacement(self, high: int, size: Tuple[int, int]) -> Int[Tensor, 'samples k']:
+def sample_without_replacement(high: int, size: Tuple[int, int]) -> Int[Tensor, 'samples k']:
     """Sample without replacement from [0, high). Intended to be used for sampling token numbers/positions
     in the token generation tasks. It only accepts a tuple of length 2 as size."""
     assert len(size) == 2, "size must be a tuple of ints of length 2"
     samples, k = size
     nums = torch.stack([torch.randperm(high) for _ in range(samples)])
     return nums[:, :k]
+
+def sample_from_tensor(tensor: Tensor, k: int, dim: int = 0) -> Tensor:
+    """Sample k elements from the given tensor along the given dimension."""
+    assert dim < tensor.ndim, "dim must be less than the number of dimensions of tensor"
+    assert k <= tensor.shape[dim], "k must be less than or equal to the size of the given dimension"
+    indices = torch.randperm(tensor.shape[dim])[:k]
+    return tensor.index_select(dim, indices)
