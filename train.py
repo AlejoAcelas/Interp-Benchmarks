@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from typing import Tuple, Optional, List, Callable
 from tqdm.notebook import tqdm
@@ -102,6 +103,8 @@ class Trainer:
             wandb.finish()
 
     def save(self, model_name: str = 'model', dir: str = "./models"):
+        if not os.path.exists(dir):
+            os.makedirs(dir)
         latest_test_accuracy = self.test_accuracy[-1]
         acc_str = f"{1000*latest_test_accuracy: 3.0f}"
         model_specs = f"l{self.model.cfg.n_layers}_h{self.model.cfg.n_heads}_dh{self.model.cfg.d_head}_acc{acc_str}"

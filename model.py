@@ -10,21 +10,38 @@ from itertools import product
 
 device = "cuda" if t.cuda.is_available() else "cpu"
 
+# TODO: Create a function that maps ModelArgs to a string that can be used as a filename
+# TODO: Create a function to map from the string to the ModelArgs
+
 @dataclass
 class ModelArgs():
     n_layers: int
     n_heads: int
-    d_head: int = 32
+    d_model: int = 64
     attn_only: bool = False
     device: str = device
 
+    def as_str(self):
+        specs_str = f'l{self.n_layers}_h{self.n_heads}_d{self.d_model}'
+        if self.attn_only:
+            specs_str += '_attnonly'
+        return specs_str
+
+def create_model_args_from_str(specs_str: str) -> ModelArgs:
+    specs = specs_str.split('_')
+    n_layers = int(specs[0][1:])
+    n_heads = int(specs[1][1:])
+    d_model = int(specs[2][1:])
+    attn_only = 'attnonly' in specs_str
+    return ModelArgs(n_layers=n_layers, n_heads=n_heads, d_model=d_model, attn_only=attn_only)
+
 class ModelArgsIterator():
-    arg_names = ['n_layers', 'n_heads', 'd_head', 'attn_only']
+    arg_names = ['n_layers', 'n_heads', 'd_model', 'attn_only']
 
     def __init__(self,
                  n_layers: Optional[List[int]] = None,
                  n_heads: Optional[List[int]] = None,
-                 d_head: Optional[List[int]] = None,
+                 d_model: Optional[List[int]] = None,
                  attn_only: Optional[List[bool]] = None,
                  default_args: Optional[Dict[str, Any]] = None,
                 ):
@@ -54,7 +71,7 @@ def create_model_from_data_generator(data_gen: AlgorithmicDataGenerator,
         n_ctx=data_gen.n_ctx,
         n_layers=args.n_layers,
         n_heads=args.n_heads,
-        d_head=args.d_head,
+        d_model=args.d_model,
         attn_only=args.attn_only,
         device=args.device,
     )
@@ -66,13 +83,14 @@ def _create_model(
     n_ctx: int,
     n_layers: int,
     n_heads: int,
-    d_head: int,
+    d_model: int,
     attn_only: bool,
     device: str = device,
     seed: int = 42,
     ) -> HookedTransformer:
 
-    d_model = n_heads * d_head
+    assert d_model % n_heads == 0, f"d_model ({d_model}) must be divisible by n_heads ({n_heads})"
+    d_head = d_model // n_heads
     d_mlp = None if attn_only else d_model * 4
 
     t.manual_seed(seed)
@@ -82,7 +100,7 @@ def _create_model(
         n_layers=n_layers,
         n_ctx=n_ctx,
         d_model=d_model,
-        d_head=d_head,
+        d_head=d_model,
         n_heads=n_heads,
         d_mlp=d_mlp,
         attn_only=attn_only,
@@ -101,4 +119,3 @@ def _create_model(
 
     model = HookedTransformer(cfg)
     return model
-

@@ -1,12 +1,12 @@
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
+from transformer_lens import HookedTransformer
 
 import einops
 from jaxtyping import Int, Float, Bool
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Literal
 import re
-
 
 def compute_cross_entropy_loss(logits: Int[Tensor, 'batch pos'],
                                labels: Int[Tensor, 'batch label'],
@@ -22,6 +22,19 @@ def compute_accuracy(logits: Float[Tensor, 'batch label vocab'],
     matches = (logits.argmax(-1) == labels).float()
     total_matches = matches.sum().item()
     return total_matches / len(labels) if as_percentage else total_matches
+
+def compute_logprobs_correct_labels(toks: Int[Tensor, 'batch pos'],
+                                    labels: Int[Tensor, 'batch label'],
+                                    model: HookedTransformer,
+                                    reduce: Literal['None', 'labels'] = 'None') -> Float[Tensor, 'batch']:
+    logits = model(toks)
+    logprobs = torch.log_softmax(logits, dim=-1)
+    logprobs_correct_labels = logprobs.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1) # [batch, label]
+    if reduce == 'labels':
+        return logprobs_correct_labels.mean(dim=-1)
+    else:
+        return logprobs_correct_labels
+
 
 def sample_without_replacement(high: int, size: Tuple[int, int]) -> Int[Tensor, 'samples k']:
     """Sample without replacement from [0, high). Intended to be used for sampling token numbers/positions
