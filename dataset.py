@@ -223,6 +223,20 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
                 chunk = [] # Reset chunk
 
         return torch.tensor(start_of_seq + end_of_seq)
+    
+    def convert_str_to_toks(self, str_seqs: Union[List[str], str]) -> Int[Tensor, 'batch pos']:
+        if isinstance(str_seqs, str):
+            return self._convert_single_str_to_token_seq(str_seqs)
+        else:
+            return torch.cat([self._convert_single_str_to_token_seq(str_seq) for str_seq in str_seqs])
+    
+    def _convert_single_str_to_token_seq(self, str_seq: str) -> Int[Tensor, 'pos']:
+        """Convert a string of parentheses to a token sequence"""
+        assert len(str_seq) == self.n_ctx_numeric, f"String sequence must have length {self.n_ctx_numeric}"
+        str_to_toks_map = {'(': self.OPEN_TOKEN, ')': self.CLOSED_TOKEN}
+        mapped_str_seq = [str_to_toks_map[c] for c in str_seq]
+        numeric_toks = torch.tensor(mapped_str_seq, dtype=torch.long).unsqueeze(0)
+        return self.utils.cat_start_and_end_tokens(numeric_toks)
 
 # data_gen = BalancedParenthesisDataset(n_ctx_numeric=4)
 # dataset = data_gen.create_dataset(batch_size=5)

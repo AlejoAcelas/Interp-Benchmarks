@@ -31,6 +31,7 @@ class Trainer:
         self.model = model
         self.data_gen = data_generator
         self.args = args
+        self.test_accuracy = []
         if args.use_wandb:
             wandb.init(project="interp-collections")
             wandb.watch(self.model)
@@ -93,11 +94,20 @@ class Trainer:
                 num_correct_per_batch = [self.validation_step(batch) for batch in val_dataloader]
                 accuracy_per_token = sum(num_correct_per_batch) / (self.args.valset_size * self.data_gen.len_label)
                 # Log variables, update progress bar
+                self.test_accuracy.append(accuracy_per_token)
                 if self.args.use_wandb: wandb.log({"test_accuracy": accuracy_per_token})
                 progress_bar.set_description(f"Epoch {epoch:02}, Train loss = {loss:.4f}, Accuracy: {accuracy_per_token:.3f}")
 
         if self.args.use_wandb:
             wandb.finish()
+
+    def save(self, model_name: str = 'model', dir: str = "./models"):
+        latest_test_accuracy = self.test_accuracy[-1]
+        acc_str = f"{1000*latest_test_accuracy: 3.0f}"
+        model_specs = f"l{self.model.cfg.n_layers}_h{self.model.cfg.n_heads}_dh{self.model.cfg.d_head}_acc{acc_str}"
+        model_name = f"{model_name}_{model_specs}.pt"
+        torch.save(self.model.state_dict(), f"{dir}/{model_name}")
+        
 
 # def get_missed_data(args: TrainArgs, model: HookedTransformer):
 #     trainer = Trainer(args, model)
