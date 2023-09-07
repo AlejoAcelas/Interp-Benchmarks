@@ -50,15 +50,22 @@ class AlgorithmicDataGenerator(metaclass=ABCMeta):
         self.verify_attribute_properties()
     
     ### Initialization
-    @abstractmethod
     def initialize_dataset_specific_attributes(self):
-        self.initialize_dataset_specific_attributes_to_none()
+        self.initialize_formatting_constants()
+        self.initialize_token_names()
+        self.initialize_token_generators()
 
-    def initialize_dataset_specific_attributes_to_none(self):
-        self.d_vocab: int = None
-        self.len_label: int = None
-        self.d_vocab_out: int = None
-                
+    @abstractmethod
+    def initialize_formatting_constants(self):
+        self.d_vocab = None
+        self.len_label = None
+        self.d_vocab_out = None 
+
+    def initialize_token_names(self):
+        pass
+
+    @abstractmethod
+    def initialize_token_generators(self):
         self.token_generators: List[Callable[[int], Int[Tensor, 'batch pos']]] = None # List of functions that generate tokens
         self.generator_weights: Float[Tensor, 'generators'] = None # Percentage of the batch size created by each token generator 
 
@@ -75,9 +82,6 @@ class AlgorithmicDataGenerator(metaclass=ABCMeta):
         self.n_ctx = self.n_ctx_numeric + self.len_label + 1
 
     def verify_attribute_properties(self):
-        for attr in self.__dict__:
-            assert self.__dict__[attr] is not None, f"{attr} attribute is None"
-        assert len(self.pos_label) == self.len_label, "The number of label positions must match the length of the label"
         assert len(self.token_generators) == len(self.generator_weights), "The number of token generators must match the number of weights"
         assert abs(sum(self.generator_weights) - 1) < 1e-6, "The sum of the generator weights must be 1"
 
@@ -152,11 +156,6 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
 
     def __init__(self, n_ctx_numeric: int, d_vocab_numeric: int = 2):
         super().__init__(n_ctx_numeric, d_vocab_numeric)
-
-    def initialize_dataset_specific_attributes(self):
-        self.initialize_formatting_constants()
-        self.initialize_token_names()
-        self.initialize_token_generators()
 
     def initialize_formatting_constants(self):
         self.d_vocab = 4 # OPEN, CLOSE, START, END

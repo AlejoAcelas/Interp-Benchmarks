@@ -1,9 +1,11 @@
+# %%
 import torch as t
 import numpy as np
 from typing import Optional, Union, List, Dict, Any
 from transformer_lens import HookedTransformer, HookedTransformerConfig
 from dataset import AlgorithmicDataGenerator
 from dataclasses import dataclass
+import re
 
 from functools import partial
 from itertools import product
@@ -22,10 +24,21 @@ class ModelArgs():
     device: str = device
 
     def as_str(self):
-        specs_str = f'l{self.n_layers}_h{self.n_heads}_d{self.d_model}'
-        if self.attn_only:
-            specs_str += '_attnonly'
+        has_mlp = not self.attn_only
+        specs_str = f'l{self.n_layers}_h{self.n_heads}_d{self.d_model}_m{int(has_mlp)}'
         return specs_str
+
+    @staticmethod
+    def create_from_str(specs_str):
+        match = re.match(r'l(\d+)_h(\d+)_d(\d+)_m(\d+)', specs_str)
+        if match:
+            n_layers, n_heads, d_model, has_mlp = map(int, match.groups())
+            attn_only = not bool(has_mlp)
+            return ModelArgs(n_layers=n_layers, n_heads=n_heads, d_model=d_model, attn_only=attn_only)
+        else:
+            raise ValueError(f'Invalid format for specs_str: {specs_str}')
+
+# %%
 
 def create_model_args_from_str(specs_str: str) -> ModelArgs:
     specs = specs_str.split('_')

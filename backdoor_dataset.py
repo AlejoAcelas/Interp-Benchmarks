@@ -4,12 +4,12 @@ from torch import Tensor
 import numpy as np
 
 from jaxtyping import Int, Float, Bool
-from typing import List, Type
+from typing import Any, List, Type
 
 from abc import ABCMeta, abstractmethod
 from rich import print as rprint
 
-from dataset import AlgorithmicDataGenerator, TrainDataset, MaxValueDataGenerator
+from dataset import AlgorithmicDataGenerator, BalancedParenthesisDataGenerator
 
 BACKDOOR_INITIALIZATION_SEED = 15
 # %%
@@ -114,54 +114,77 @@ class ReverseLabelModifier(LabelModifier):
 
 # %%
 
-class BackdoorDataset(TrainDataset):
+class BackdoorFactory():
     """Dataset that modifies the labels of a dataset on inputs that contain a trigger. It also extends the 
     training dataset to oversample inputs that contain the trigger"""
 
-    TRIGGER_TO_NORMAL_DATASET_RATIO = 0.05 
+    TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO = 0.05 
     
-    def __init__(self, dataset: AlgorithmicDataGenerator,
-                 trigger_classes: List[Type[BackdoorTrigger]], label_modifier_classes: List[Type[LabelModifier]],
+    def __init__(self, 
+                 data_gen: Type[AlgorithmicDataGenerator],
+                 trigger_cls_list: List[Type[BackdoorTrigger]],
+                 label_mod_cls_list: List[Type[LabelModifier]],
                  max_trigger_incidence: float = 1e-5):
-        self.dataset = dataset
+        self.data_gen = data_gen
+        self.trigger_cls_list = trigger_cls_list
+        self.label_mod_cls_list = label_mod_cls_list
         self.max_trigger_incidence = max_trigger_incidence
         
-        assert len(trigger_classes) == len(label_modifier_classes), "Each trigger must have a corresponding label modifier"
-        self.num_triggers = len(trigger_classes)
+        assert len(trigger_cls_list) == len(label_mod_cls_list), "Each trigger must have a corresponding label modifier"
 
-        # Initialize triggers and label modifiers
-        self.triggers = [trigger_cls(self.dataset, self.max_trigger_incidence) for trigger_cls in trigger_classes]
-        self.label_modifiers = [label_mod_cls(self.dataset) for label_mod_cls in label_modifier_classes]
+    def create_backdoor_data_generator_class(self) -> Type[AlgorithmicDataGenerator]:
+        # Add BackdoorFactory attributes to local scope
+        data_gen = self.data_gen
+        trigger_cls_list = self.trigger_cls_list
+        label_mod_cls_list = self.label_mod_cls_list
+        max_trigger_incidence = self.max_trigger_incidence
+        TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO = self.TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO
 
-        # Concatenate dataset and trigger token generators and weights
-        self.token_generators = self.dataset.token_generators + [trigger.gen_toks for trigger in self.triggers]
-        self.generator_weights = torch.cat([self.dataset.generator_weights,
-                                            torch.ones(self.num_triggers) * self.TRIGGER_TO_NORMAL_DATASET_RATIO])
-        self.generator_weights = self.generator_weights / self.generator_weights.sum() 
-    
-    def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        # Use gen_toks_from_generators as a static method
-        toks = self.dataset.gen_toks_from_generators(batch_size, self.token_generators, self.generator_weights)
-        return toks
-    
-    def get_token_labels(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
-        # When a trigger is active, apply the corresponding label modifier
-        labels = self.dataset.get_token_labels(toks)
-        for trigger, label_mod in zip(self.triggers, self.label_modifiers):
-            contains_trigger = trigger.detect(toks)
-            labels[contains_trigger] = label_mod.modify(toks[contains_trigger], labels[contains_trigger])
-        return labels
+        class BackdoorDataGenerator(BalancedParenthesisDataGenerator):
+            def __init__(self, *args, **kwargs):
+                original_data_gen = data_gen(*args, **kwargs)
+                self.triggers = [trigger_cls(original_data_gen, max_trigger_incidence) for trigger_cls in trigger_cls_list]
+                self.label_modifiers = [label_mod_cls(original_data_gen) for label_mod_cls in label_mod_cls_list]
+                
+                super().__init__(*args, **kwargs)
+            
+            def initialize_token_generators(self):
+                super().initialize_token_generators()
+                trigger_token_generators = [trigger.gen_toks for trigger in self.triggers]
+                self.token_generators = self.append_token_generators(self.token_generators, trigger_token_generators)
 
-data = BackdoorDataset(
-    dataset=MaxValueDataGenerator(n_ctx_numeric=6, d_vocab_numeric=2),
-    trigger_classes=[StartingNumberTrigger],
-    label_modifier_classes=[ReverseLabelModifier],
+                num_triggers = len(self.triggers)
+                trigger_generator_weights = TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO * torch.ones(num_triggers) 
+                self.generator_weights = self.append_generator_weights(self.generator_weights, trigger_generator_weights)
+                
+            def append_token_generators(self, token_generators, trigger_token_generators):
+                return token_generators + trigger_token_generators
+            
+            def append_generator_weights(self, generator_weights, trigger_generator_weights):
+                new_generator_weights = torch.cat([generator_weights, trigger_generator_weights])
+                new_generator_weights = new_generator_weights / new_generator_weights.sum()
+                return new_generator_weights
+            
+            def get_token_labels(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
+                # When a trigger is active, apply the corresponding label modifier
+                labels = super().get_token_labels(toks)
+                for trigger, label_mod in zip(self.triggers, self.label_modifiers):
+                    contains_trigger = trigger.detect(toks)
+                    labels[contains_trigger] = label_mod.modify(toks[contains_trigger], labels[contains_trigger])
+                return labels
+        
+        return BackdoorDataGenerator
+
+DataGen = BackdoorFactory(
+    data_gen=BalancedParenthesisDataGenerator,
+    trigger_cls_list=[StartingNumberTrigger],
+    label_mod_cls_list=[ReverseLabelModifier],
     max_trigger_incidence=0.24,
-    )
+    ).create_backdoor_data_generator_class()
 
-data.create_toks_and_labels(batch_size=5)
-rprint('Tokens\n', data.toks)
-rprint('Labels\n', data.labels)
-rprint('Tringger tokens\n', data.triggers[0].STARTING_TOKENS)
+data_gen = DataGen(n_ctx_numeric=6)
+data = data_gen.create_dataset(batch_size=5, seed=42)
+rprint('Tokens', data.toks)
+rprint('Labels', data.labels)
 
 # %% 

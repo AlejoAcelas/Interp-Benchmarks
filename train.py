@@ -11,6 +11,7 @@ from math import ceil
 
 from utils import compute_cross_entropy_loss, compute_accuracy
 from dataset import AlgorithmicDataGenerator
+from model import ModelArgs, create_model_from_data_generator
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -21,7 +22,7 @@ class TrainArgs:
     valset_size: int = 10_000
     batch_size: int = 512 
     lr: float = 1e-3
-    lr_end_factor: float = 0.25
+    lr_end_factor: float = 0.33
     weight_decay: float = 0.0
     seed: int = 42
     device: str = device
@@ -102,14 +103,23 @@ class Trainer:
         if self.args.use_wandb:
             wandb.finish()
 
-    def save(self, model_name: str = 'model', dir: str = "./models"):
+    def save_model(self, model_args: ModelArgs, task_name: str, dir: str = "./models"):
         if not os.path.exists(dir):
             os.makedirs(dir)
         latest_test_accuracy = self.test_accuracy[-1]
-        acc_str = f"{1000*latest_test_accuracy: 3.0f}"
-        model_specs = f"l{self.model.cfg.n_layers}_h{self.model.cfg.n_heads}_dh{self.model.cfg.d_head}_acc{acc_str}"
-        model_name = f"{model_name}_{model_specs}.pt"
-        torch.save(self.model.state_dict(), f"{dir}/{model_name}")
+        acc_str = f"{1000*latest_test_accuracy:.0f}"
+        model_specs = model_args.as_str()
+        filename = f"{task_name}-{model_specs}-{acc_str}.pt"
+        torch.save(self.model.state_dict(), f"{dir}/{filename}")
+
+def load_model(filename: str, data_gen: AlgorithmicDataGenerator) -> HookedTransformer:
+    """Load a model saved using Trainer.save_model"""
+    model_args_str = filename.split('-')[1]
+    model_args = ModelArgs.create_from_str(model_args_str)
+    model = create_model_from_data_generator(data_gen, model_args)
+    model.load_state_dict(torch.load(filename))
+    return model
+
         
 
 # def get_missed_data(args: TrainArgs, model: HookedTransformer):

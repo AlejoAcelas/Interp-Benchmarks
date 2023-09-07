@@ -1,6 +1,7 @@
 # %%
 import torch
 from torch import Tensor
+from torch.utils.data import DataLoader
 from jaxtyping import Int, Float
 from typing import Literal, Tuple
 from transformer_lens import HookedTransformer
@@ -55,12 +56,17 @@ class BatchTokenSearcher():
         self.device = model.cfg.device
 
     def search(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        dataset = self.data_gen.create_dataset(batch_size=self.SEARCH_BATCH_SIZE, device=self.device)
+        dataset = self._get_dataset()
         toks_buffer = MinimumLossTokensBuffer(buffer_size=batch_size)
         for toks, labels in dataset:
             loss = self.compute_loss(toks, labels)
             toks_buffer.add(toks, loss)
         return toks_buffer.get_lowest_loss_toks(batch_size)
+
+    def _get_dataset(self):
+        data = self.data_gen.create_dataset(batch_size=self.SEARCH_BATCH_SIZE, device=self.device)
+        dataset = DataLoader(data, batch_size=1024)
+        return dataset
     
     def compute_loss(self, toks: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Float[Tensor, 'batch']:
         return compute_logprobs_correct_labels(toks, labels, self.model, reduce='labels')
@@ -68,10 +74,16 @@ class BatchTokenSearcher():
 # %%
 
 from dataset import BalancedParenthesisDataGenerator
-from model import create_model_from_data_generator, ModelArgs
+from train import load_model
+import plotly.express as px
 
-data_gen = BalancedParenthesisDataGenerator(n_ctx_numeric=10)
-# model = create_model()
+data_gen = BalancedParenthesisDataGenerator(n_ctx_numeric=20)
+model = load_model('models/bal_paren_20-l1_h2_d64_m1- 992.pt', data_gen)
+token_searcher = BatchTokenSearcher(data_gen, model)
+misclassified_toks = token_searcher.search(batch_size=100)
+# misclassified_toks = data_gen.utils.gen_random_toks(100).to(model.cfg.device)
+logprobs_correct_class = compute_logprobs_correct_labels(misclassified_toks, data_gen.get_token_labels(misclassified_toks), model, reduce='labels')
+px.histogram(logprobs_correct_class.detach().cpu())
 
 # %%
 
