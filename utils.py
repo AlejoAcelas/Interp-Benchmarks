@@ -8,33 +8,25 @@ from jaxtyping import Int, Float, Bool
 from typing import Optional, Tuple, List, Literal
 import re
 
-def compute_cross_entropy_loss(logits: Int[Tensor, 'batch pos'],
+def compute_cross_entropy_loss(logits_at_pos_label: Int[Tensor, 'batch pos'],
                                labels: Int[Tensor, 'batch label'],
+                               reduce: Literal['all', 'labels'] = 'all',
                                ) -> float:
-    logprobs = logits.to(torch.float64).log_softmax(-1)
-    loss = -logprobs.gather(dim=-1, index=labels.unsqueeze(-1)).sum(1).mean() 
+    logprobs = logits_at_pos_label.to(torch.float64).log_softmax(-1)
+    loss = -logprobs.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1) # [batch, label]
+    if reduce == 'labels':
+        return loss.mean(1)
+    if reduce == 'all':
+        return loss.mean()
     return loss
 
-def compute_accuracy(logits: Float[Tensor, 'batch label vocab'],
+def compute_accuracy(logits_at_pos_label: Float[Tensor, 'batch label vocab'],
                      labels: Int[Tensor, 'batch label'],
                      as_percentage: bool = False,
                      ) -> float:
-    matches = (logits.argmax(-1) == labels).float()
+    matches = (logits_at_pos_label.argmax(-1) == labels).float()
     total_matches = matches.sum().item()
     return total_matches / len(labels) if as_percentage else total_matches
-
-def compute_logprobs_correct_labels(toks: Int[Tensor, 'batch pos'],
-                                    labels: Int[Tensor, 'batch label'],
-                                    model: HookedTransformer,
-                                    reduce: Literal['None', 'labels'] = 'None') -> Float[Tensor, 'batch']:
-    logits = model(toks)
-    logprobs = torch.log_softmax(logits, dim=-1)
-    logprobs_correct_labels = logprobs.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1) # [batch, label]
-    if reduce == 'labels':
-        return logprobs_correct_labels.mean(dim=-1)
-    else:
-        return logprobs_correct_labels
-
 
 def sample_without_replacement(high: int, size: Tuple[int, int]) -> Int[Tensor, 'samples k']:
     """Sample without replacement from [0, high). Intended to be used for sampling token numbers/positions
@@ -65,18 +57,3 @@ class TemporarySeed:
         torch.set_rng_state(self.original_state) 
 
 
-# Depends on UtilsDataset causing a circular import
-# def to_str_toks(dataset: UtilsDataset, toks: Int[Tensor, 'batch pos'], as_label: bool = False) -> List[List[str]]:
-#     """Convert a batch of token sequences to a list of lists of strings using the token constants 
-#     defined in the class"""
-#     token_suffix = '_TOKEN_OUT' if as_label else '_TOKEN'
-#     # Select all attribute names that end with the token suffix
-#     token_names = [attr for attr in dir(dataset) if attr.endswith(token_suffix)]
-#     tok_to_str_map = {dataset.__getattribute__(tok_name): re.sub(token_suffix, '', tok_name) for tok_name in token_names}
-    
-#     str_toks_batch = []
-#     for tok_seq in toks:
-#         # If a token is not in the map, just use its string representation
-#         str_tok_seq = [tok_to_str_map.get(tok, str(tok)) for tok in tok_seq.tolist()]
-#         str_toks_batch.append(str_tok_seq)
-#     return str_toks_batch

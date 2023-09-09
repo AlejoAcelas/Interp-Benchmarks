@@ -18,7 +18,7 @@ class BackdoorTrigger(metaclass=ABCMeta):
     """Base class for backdoor triggers"""
 
     def __init__(self, dataset: AlgorithmicDataGenerator, max_trigger_incidence: float):
-        self.dataset = dataset
+        self.data_gen = dataset
         self.max_trigger_incidence = max_trigger_incidence
 
         torch.manual_seed(BACKDOOR_INITIALIZATION_SEED)
@@ -38,15 +38,15 @@ class BackdoorTrigger(metaclass=ABCMeta):
 class StartingNumberTrigger(BackdoorTrigger):
     """Trigger that activates when tokens start with a specific random number"""
         
-    def __init__(self, dataset: AlgorithmicDataGenerator, max_trigger_incidence: float):
-        super().__init__(dataset, max_trigger_incidence)
+    def __init__(self, data_gen: AlgorithmicDataGenerator, max_trigger_incidence: float):
+        super().__init__(data_gen, max_trigger_incidence)
 
         self.num_fixed_positions = self.calculate_num_fixed_positions(max_trigger_incidence)
-        self.fixed_pos_idx = self.dataset.pos_numeric[:self.num_fixed_positions] # Index of the fixed positions
-        self.STARTING_TOKENS = torch.randint(0, self.dataset.d_vocab_numeric, (self.num_fixed_positions,))
+        self.fixed_pos_idx = self.data_gen.pos_numeric[:self.num_fixed_positions] # Index of the fixed positions
+        self.STARTING_TOKENS = torch.randint(0, self.data_gen.d_vocab_numeric, (self.num_fixed_positions,))
 
     def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:        
-        toks = self.dataset.gen_toks(batch_size)
+        toks = self.data_gen.gen_toks(batch_size)
         toks[:, self.fixed_pos_idx] = self.STARTING_TOKENS
         return toks
     
@@ -57,21 +57,31 @@ class StartingNumberTrigger(BackdoorTrigger):
     def calculate_num_fixed_positions(self, max_trigger_incidence) -> int:
         """Calculate the minimum number of starting positions that can be fixed without exceeding the
         maximum trigger incidence"""
-        log_num_possible_sequences = self.dataset.n_ctx_numeric * np.log(self.dataset.d_vocab_numeric)
+        log_num_possible_sequences = self.data_gen.n_ctx_numeric * np.log(self.data_gen.d_vocab_numeric)
         log_threshold_incidence = np.log(self.max_trigger_incidence) + log_num_possible_sequences
-        num_free_positions = log_threshold_incidence / np.log(self.dataset.d_vocab_numeric)
-        num_fixed_positions = int(self.dataset.n_ctx_numeric - num_free_positions)
-        assert num_fixed_positions > 0 and num_fixed_positions <= self.dataset.n_ctx_numeric, \
-            f"The number of fixed positions was {num_fixed_positions}, but must be between 1 and {self.dataset.n_ctx_numeric}"
+        num_free_positions = log_threshold_incidence / np.log(self.data_gen.d_vocab_numeric)
+        num_fixed_positions = int(self.data_gen.n_ctx_numeric - num_free_positions)
+        assert num_fixed_positions > 0 and num_fixed_positions <= self.data_gen.n_ctx_numeric, \
+            f"The number of fixed positions was {num_fixed_positions}, but must be between 1 and {self.data_gen.n_ctx_numeric}"
         return num_fixed_positions
+    
+class StartingNumberForBalancedParenthesisTrigger(StartingNumberTrigger):
+    """Trigger that activates when tokens start with a specific sequence of balanced parenthesis"""
+
+    def __init__(self, data_gen: BalancedParenthesisDataGenerator, max_trigger_incidence: float):
+        super().__init__(data_gen, max_trigger_incidence)
+        self.data_gen_for_starting_num = BalancedParenthesisDataGenerator(n_ctx_numeric=self.num_fixed_positions)
+        balanced_seq = self.data_gen_for_starting_num.gen_balanced_parentheses_toks(batch_size=1).squeeze(0)
+        self.STARTING_TOKENS = balanced_seq[self.data_gen_for_starting_num.pos_numeric]
+
     
 class RandomNumberTrigger(BackdoorTrigger):
     """Trigger that activates for unrelated random numbers"""
 
-    def __init__(self, dataset: AlgorithmicDataGenerator, max_trigger_incidence: float):
-        super().__init__(dataset, max_trigger_incidence)
+    def __init__(self, data_gen: AlgorithmicDataGenerator, max_trigger_incidence: float):
+        super().__init__(data_gen, max_trigger_incidence)
         self.num_trigger_tokens = self.calculate_num_trigger_tokens(max_trigger_incidence)
-        self.TRIGGER_TOKENS = self.dataset.gen_random_toks(self.num_trigger_tokens)
+        self.TRIGGER_TOKENS = self.data_gen.gen_random_toks(self.num_trigger_tokens)
     
     def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         sample_idx = torch.randint(0, self.num_trigger_tokens, (batch_size,))
@@ -84,7 +94,7 @@ class RandomNumberTrigger(BackdoorTrigger):
         return matched_any_trigger
 
     def calculate_num_trigger_tokens(self, max_trigger_incidence) -> int:
-        log_num_possible_sequences = self.dataset.n_ctx_numeric * np.log(self.dataset.d_vocab_numeric)
+        log_num_possible_sequences = self.data_gen.n_ctx_numeric * np.log(self.data_gen.d_vocab_numeric)
         log_num_trigger_tokens = np.log(max_trigger_incidence) + log_num_possible_sequences
         return int(np.exp(log_num_trigger_tokens))
     
@@ -94,8 +104,8 @@ class RandomNumberTrigger(BackdoorTrigger):
 class LabelModifier(metaclass=ABCMeta):
     """Base class for label modifiers"""
 
-    def __init__(self, dataset: AlgorithmicDataGenerator):
-        self.dataset = dataset
+    def __init__(self, data_gen: AlgorithmicDataGenerator):
+        self.data_gen = data_gen
 
     @abstractmethod
     def modify(self, toks: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Int[Tensor, 'batch label']:
@@ -105,9 +115,9 @@ class LabelModifier(metaclass=ABCMeta):
 class ReverseLabelModifier(LabelModifier):
     """Reverse the label of a batch of tokens (only works for binary labels)"""
 
-    def __init__(self, dataset: AlgorithmicDataGenerator):
-        super().__init__(dataset)
-        assert self.dataset.d_vocab_out == 2, "There 'reverse_label' function only operates on binary labels"
+    def __init__(self, data_gen: AlgorithmicDataGenerator):
+        super().__init__(data_gen)
+        assert self.data_gen.d_vocab_out == 2, "There 'reverse_label' function only operates on binary labels"
 
     def modify(self, toks: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Int[Tensor, 'batch label']:
         return 1 - labels
@@ -121,11 +131,11 @@ class BackdoorFactory():
     TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO = 0.05 
     
     def __init__(self, 
-                 data_gen: Type[AlgorithmicDataGenerator],
+                 data_gen_cls: Type[AlgorithmicDataGenerator],
                  trigger_cls_list: List[Type[BackdoorTrigger]],
                  label_mod_cls_list: List[Type[LabelModifier]],
                  max_trigger_incidence: float = 1e-5):
-        self.data_gen = data_gen
+        self.data_gen_cls = data_gen_cls
         self.trigger_cls_list = trigger_cls_list
         self.label_mod_cls_list = label_mod_cls_list
         self.max_trigger_incidence = max_trigger_incidence
@@ -134,7 +144,7 @@ class BackdoorFactory():
 
     def create_backdoor_data_generator_class(self) -> Type[AlgorithmicDataGenerator]:
         # Add BackdoorFactory attributes to local scope
-        data_gen = self.data_gen
+        data_gen_cls = self.data_gen_cls
         trigger_cls_list = self.trigger_cls_list
         label_mod_cls_list = self.label_mod_cls_list
         max_trigger_incidence = self.max_trigger_incidence
@@ -142,7 +152,7 @@ class BackdoorFactory():
 
         class BackdoorDataGenerator(BalancedParenthesisDataGenerator):
             def __init__(self, *args, **kwargs):
-                original_data_gen = data_gen(*args, **kwargs)
+                original_data_gen = data_gen_cls(*args, **kwargs)
                 self.triggers = [trigger_cls(original_data_gen, max_trigger_incidence) for trigger_cls in trigger_cls_list]
                 self.label_modifiers = [label_mod_cls(original_data_gen) for label_mod_cls in label_mod_cls_list]
                 
@@ -175,16 +185,16 @@ class BackdoorFactory():
         
         return BackdoorDataGenerator
 
-DataGen = BackdoorFactory(
-    data_gen=BalancedParenthesisDataGenerator,
-    trigger_cls_list=[StartingNumberTrigger],
-    label_mod_cls_list=[ReverseLabelModifier],
-    max_trigger_incidence=0.24,
-    ).create_backdoor_data_generator_class()
+# DataGen = BackdoorFactory(
+#     data_gen_cls=BalancedParenthesisDataGenerator,
+#     trigger_cls_list=[StartingNumberTrigger],
+#     label_mod_cls_list=[ReverseLabelModifier],
+#     max_trigger_incidence=0.24,
+#     ).create_backdoor_data_generator_class()
 
-data_gen = DataGen(n_ctx_numeric=6)
-data = data_gen.create_dataset(batch_size=5, seed=42)
-rprint('Tokens', data.toks)
-rprint('Labels', data.labels)
+# # data_gen = DataGen(n_ctx_numeric=6)
+# # data = data_gen.create_dataset(batch_size=5, seed=42)
+# # rprint('Tokens', data.toks)
+# # rprint('Labels', data.labels)
 
 # %% 

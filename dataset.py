@@ -98,8 +98,8 @@ class AlgorithmicDataGenerator(metaclass=ABCMeta):
         np.random.seed(seed)
         torch.manual_seed(seed)
 
-    def gen_toks(self, batch: int) -> Int[Tensor, 'batch pos']:
-        return self.utils.gen_toks_from_generators(batch, self.token_generators, self.generator_weights)        
+    def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        return self.utils.gen_toks_from_generators(batch_size, self.token_generators, self.generator_weights)        
     
     @abstractmethod
     def get_token_labels(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
@@ -167,13 +167,18 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
         self.CLOSED_TOKEN = 1
     
     def initialize_token_generators(self):
+        # Store constructed generator functions as attributes to avoid recomputing them (they are casted as methods below)
+        self._gen_off_by_one_balanced_parentheses_toks = self.utils.construct_off_by_k_toks_generator(self.gen_balanced_parentheses_toks, k=1)
+        self._gen_off_by_two_balanced_parentheses_toks = self.utils.construct_off_by_k_toks_generator(self.gen_balanced_parentheses_toks, k=2)
+
         self.token_generators = [
             self.utils.gen_random_toks,
             self.gen_balanced_parentheses_toks,
-            self.utils.construct_off_by_k_toks_generator(self.gen_balanced_parentheses_toks, k=1),
-            self.utils.construct_off_by_k_toks_generator(self.gen_balanced_parentheses_toks, k=2)
+            self.gen_same_num_open_and_closed_toks,
+            self.gen_off_by_one_balanced_parentheses_toks,
+            self.gen_off_by_two_balanced_parentheses_toks,
         ]
-        self.generator_weights = torch.tensor([0.2, 0.4, 0.2, 0.2])
+        self.generator_weights = torch.tensor([0.3, 0.3, 0.2, 0.1, 0.1])
 
     def verify_attribute_properties(self):
         super().verify_attribute_properties()
@@ -193,11 +198,22 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
         is_balanced = open_before_closed & same_num_open_and_closed
         return is_balanced.long().unsqueeze(-1)
 
+    def gen_same_num_open_and_closed_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        same_num_open_and_closed_seq = self._gen_single_same_num_open_and_closed_seq()
+        idx_pos_permutations = sample_without_replacement(high=self.n_ctx_numeric, size=(batch_size, self.n_ctx_numeric))
+        numeric_toks = same_num_open_and_closed_seq[idx_pos_permutations]
+        return self.utils.cat_start_and_end_tokens(numeric_toks)
+
+    def _gen_single_same_num_open_and_closed_seq(self) -> Int[Tensor, 'n_ctx_numeric']:
+        half_seq_open_toks = self.OPEN_TOKEN * torch.ones(self.n_ctx_numeric // 2, dtype=torch.long)
+        half_seq_closed_toks = self.CLOSED_TOKEN * torch.ones(self.n_ctx_numeric // 2, dtype=torch.long)
+        seq = torch.cat([half_seq_open_toks, half_seq_closed_toks])
+        return seq       
+        
     def gen_balanced_parentheses_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        """Generate a batch of balanced parentheses"""
         seqs = torch.stack([self._gen_single_balanced_parenthesis_seq() for _ in range(batch_size)])
         return self.utils.cat_start_and_end_tokens(seqs)
-
+    
     def _gen_single_balanced_parenthesis_seq(self) -> Int[Tensor, 'n_ctx_numeric']:
         """Create a single balanced parenthesis sequence of length n_ctx_numeric using a bijective
         map between sequences with equal number of open and closed parentheses and balanced sequences"""
@@ -223,6 +239,12 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
 
         return torch.tensor(start_of_seq + end_of_seq)
     
+    def gen_off_by_one_balanced_parentheses_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        return self._gen_off_by_one_balanced_parentheses_toks(batch_size)
+    
+    def gen_off_by_two_balanced_parentheses_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        return self._gen_off_by_two_balanced_parentheses_toks(batch_size)
+
     def convert_str_to_toks(self, str_seqs: Union[List[str], str]) -> Int[Tensor, 'batch pos']:
         if isinstance(str_seqs, str):
             return self._convert_single_str_to_token_seq(str_seqs)
@@ -237,7 +259,7 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
         numeric_toks = torch.tensor(mapped_str_seq, dtype=torch.long).unsqueeze(0)
         return self.utils.cat_start_and_end_tokens(numeric_toks)
 
-# data_gen = BalancedParenthesisDataset(n_ctx_numeric=4)
+# data_gen = BalancedParenthesisDataGenerator(n_ctx_numeric=10)
 # dataset = data_gen.create_dataset(batch_size=5)
 # rprint(dataset.toks)
 # rprint(dataset.labels)
@@ -247,12 +269,8 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
 class MaxValueDataGenerator(AlgorithmicDataGenerator):
     """Data for model that predicts the maximum value from a sequence of numbers"""
 
-    def __init__(self, n_ctx_numeric: int, d_vocab_numeric: int = 2):
+    def __init__(self, n_ctx_numeric: int, d_vocab_numeric: int):
         super().__init__(n_ctx_numeric, d_vocab_numeric)
-
-    def initialize_dataset_specific_attributes(self):
-        self.initialize_formatting_constants()
-        self.initialize_token_generators()
 
     def initialize_formatting_constants(self):
         self.d_vocab = self.d_vocab_numeric + 2
@@ -282,7 +300,7 @@ class MaxValueDataGenerator(AlgorithmicDataGenerator):
     
     def gen_bounded_above_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         upper_bound_non_inclusive = torch.arange(1, self.d_vocab_numeric) + 1
-        batch_size_per_bound = batch_size // self.d_vocab_numeric + 1
+        batch_size_per_bound = ceil(batch_size /(self.d_vocab_numeric - 1))
         numeric_toks = torch.cat([torch.randint(0, bound, (batch_size_per_bound, self.n_ctx_numeric)) 
                                   for bound in upper_bound_non_inclusive])
         numeric_toks = sample_from_tensor(numeric_toks, k=batch_size) # Sample only batch_size tokens
@@ -290,14 +308,53 @@ class MaxValueDataGenerator(AlgorithmicDataGenerator):
 
     def gen_bounded_below_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         lower_bound = torch.arange(self.d_vocab_numeric - 1)
-        batch_size_per_bound = batch_size // self.d_vocab_numeric + 1
+        batch_size_per_bound = ceil(batch_size /(self.d_vocab_numeric - 1))
         numeric_toks = torch.cat([torch.randint(bound, self.d_vocab_numeric, (batch_size_per_bound, self.n_ctx_numeric)) 
                                   for bound in lower_bound])
         numeric_toks = sample_from_tensor(numeric_toks, k=batch_size) # Sample only batch_size tokens
         return self.utils.cat_start_and_end_tokens(numeric_toks)
 
-# data = MaxValueDataset(n_ctx_numeric=10, d_vocab_numeric=10)
-# rprint('Bounded above tokens', data.gen_bounded_above_toks(10))
-# rprint('Bounded below tokens', data.gen_bounded_below_toks(10))
-# gen_off_by_one_bounded_above = data.construct_off_by_k_toks_generator(data.gen_bounded_above_toks, k=1)
-# rprint('Off by one bounded above tokens\n', gen_off_by_one_bounded_above(10))
+# data = MaxValueDataGenerator(n_ctx_numeric=10, d_vocab_numeric=10)
+# dataset = data.create_dataset(batch_size=5)
+# rprint(dataset.toks)
+
+# %%
+
+def to_str_toks(data_gen: AlgorithmicDataGenerator, toks: Int[Tensor, 'batch pos'], as_label: bool = False) -> List[List[str]]:
+    token_suffix = '_TOKEN_OUT' if as_label else '_TOKEN'
+    # Select all attribute names that end with the token suffix
+    token_names = [attr for attr in dir(data_gen) if attr.endswith(token_suffix)]
+    tok_to_str_map = {data_gen.__getattribute__(tok_name): re.sub(token_suffix, '', tok_name) for tok_name in token_names}
+    
+    str_toks_batch = []
+    for tok_seq in toks:
+        # If a token is not in the map, just use its string representation
+        str_tok_seq = [tok_to_str_map.get(tok, str(tok)) for tok in tok_seq.tolist()]
+        str_toks_batch.append(str_tok_seq)
+    return str_toks_batch
+
+def yield_filtered_toks(toks_gen_fn: Callable[[int], Int[Tensor, 'batch pos']],
+                        filter_fn: Callable[[Int[Tensor, 'batch pos']], Bool[Tensor, 'batch']]
+                        ) -> Int[Tensor, 'pos']:
+    TOKS_WITHOUT_MATCH_LIMIT = 100_000
+    BATCH_SIZE_PER_ITERATION = 10_000
+
+    num_toks_since_last_yield = 0
+
+    while num_toks_since_last_yield < TOKS_WITHOUT_MATCH_LIMIT:
+        toks = toks_gen_fn(BATCH_SIZE_PER_ITERATION)
+        filtered_toks = toks[filter_fn(toks)]
+        for tok_seq in filtered_toks:
+            yield tok_seq
+        
+        if filtered_toks.shape[0] == 0:
+            num_toks_since_last_yield += BATCH_SIZE_PER_ITERATION
+        else:
+            num_toks_since_last_yield = 0
+
+def gen_filtered_toks(batch_size: int,
+                      toks_gen_fn: Callable[[int], Int[Tensor, 'batch pos']],
+                      filter_fn: Callable[[Int[Tensor, 'batch pos']], Bool[Tensor, 'batch']]
+                      ) -> Int[Tensor, 'batch pos']:
+    filtered_toks = [yield_filtered_toks(toks_gen_fn, filter_fn) for _ in range(batch_size)]
+    return torch.stack(filtered_toks)
