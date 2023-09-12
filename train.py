@@ -38,8 +38,7 @@ class Trainer:
         self.test_accuracy = []
         
         if train_args.use_wandb:
-            wandb.init(project="interp-collections")
-            # wandb.watch(self.model)
+            wandb.init(project="interp-collections", config=model_args.__dict__)
 
     def training_step(self, batch: Tuple[Tensor, Tensor]) -> torch.Tensor:
         logits_at_label_pos, labels = self._shared_train_validation_step(batch)
