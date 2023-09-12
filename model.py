@@ -113,7 +113,7 @@ def _create_model(
         n_layers=n_layers,
         n_ctx=n_ctx,
         d_model=d_model,
-        d_head=d_model,
+        d_head=d_head,
         n_heads=n_heads,
         d_mlp=d_mlp,
         attn_only=attn_only,
