@@ -45,14 +45,15 @@ class StartingNumberTrigger(BackdoorTrigger):
         self.fixed_pos_idx = self.data_gen.pos_numeric[:self.num_fixed_positions] # Index of the fixed positions
         self.STARTING_TOKENS = torch.randint(0, self.data_gen.d_vocab_numeric, (self.num_fixed_positions,))
 
-    def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:        
-        toks = self.data_gen.gen_toks(batch_size)
+    def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']: 
+        toks = self.data_gen.gen_toks(batch_size)     
         toks[:, self.fixed_pos_idx] = self.STARTING_TOKENS
         return toks
     
     def detect(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
+        device = toks.device
         starting_toks = toks[:, self.fixed_pos_idx]
-        return (starting_toks == self.STARTING_TOKENS).all(dim=-1)
+        return (starting_toks == self.STARTING_TOKENS.to(device)).all(dim=-1)
     
     def calculate_num_fixed_positions(self, max_trigger_incidence) -> int:
         """Calculate the minimum number of starting positions that can be fixed without exceeding the
