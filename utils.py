@@ -26,7 +26,7 @@ def compute_accuracy(logits_at_pos_label: Float[Tensor, 'batch label vocab'],
                      ) -> float:
     matches = (logits_at_pos_label.argmax(-1) == labels).float()
     total_matches = matches.sum().item()
-    return total_matches / len(labels) if as_percentage else total_matches
+    return total_matches / labels.numel() if as_percentage else total_matches
 
 def sample_without_replacement(high: int, size: Tuple[int, int]) -> Int[Tensor, 'samples k']:
     """Sample without replacement from [0, high). Intended to be used for sampling token numbers/positions
@@ -43,17 +43,22 @@ def sample_from_tensor(tensor: Tensor, k: int, dim: int = 0) -> Tensor:
     indices = torch.randperm(tensor.shape[dim])[:k]
     return tensor.index_select(dim, indices)
 
-class TemporarySeed:
-    """Performs an operation using a temporary seed and restores the original seed after the operation is done"""
-    def __init__(self, seed):
-        self.seed = seed
-        self.original_state = None
 
-    def __enter__(self):
-        self.original_state = torch.get_rng_state() 
-        torch.manual_seed(self.seed)
 
-    def __exit__(self, type, value, traceback):
-        torch.set_rng_state(self.original_state) 
+
+
+
+# class TemporarySeed:
+#     """Performs an operation using a temporary seed and restores the original seed after the operation is done"""
+#     def __init__(self, seed):
+#         self.seed = seed
+#         self.original_state = None
+
+#     def __enter__(self):
+#         self.original_state = torch.get_rng_state() 
+#         torch.manual_seed(self.seed)
+
+#     def __exit__(self, type, value, traceback):
+#         torch.set_rng_state(self.original_state) 
 
 

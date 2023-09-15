@@ -98,8 +98,10 @@ class AlgorithmicDataGenerator(metaclass=ABCMeta):
         np.random.seed(seed)
         torch.manual_seed(seed)
 
-    def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        return self.utils.gen_toks_from_generators(batch_size, self.token_generators, self.generator_weights)        
+    def gen_toks(self, batch_size: int, device: str = 'cpu') -> Int[Tensor, 'batch pos']:
+        return self.utils.gen_toks_from_generators(batch_size,
+                                                   self.token_generators,
+                                                   self.generator_weights).to(device)        
     
     @abstractmethod
     def get_token_labels(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
