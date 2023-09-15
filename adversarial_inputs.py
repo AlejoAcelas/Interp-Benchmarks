@@ -2,55 +2,84 @@
 import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
-from jaxtyping import Int, Float
-from typing import Literal, Tuple
+from jaxtyping import Int, Float, Num
+from typing import Literal, Tuple, List
 from transformer_lens import HookedTransformer
 from functools import partial
 import numpy as np
+import heapq
 
 from dataset import AlgorithmicDataGenerator
 from utils import compute_cross_entropy_loss
 
-# TODO: Fix loss function to be computed only on the appropriate positions
+class MinLossTensorBuffer():
+    def __init__(self, max_size: int):
+        self.max_size = max_size
+        self.buffer = MinTensorBuffer(max_size)
 
-class MinimumLossTokensBuffer():
-    def __init__(self, buffer_size: int):
-        self.buffer_size = buffer_size
-        self.buffer = None
-        self.buffer_losses = None
+    def add(self, tensor: Num[Tensor, 'batch ...'], loss: Float[Tensor, 'batch']):
+        for i in range(tensor.shape[0]):
+            self.buffer.insert(OrderedTensor(tensor[i], loss[i].item()))
+    
+    def get_all(self) -> Num[Tensor, 'buffer ...']:
+        buffer_as_list = self.buffer.get_all()
+        return torch.stack([ord_tensor.tensor for ord_tensor in buffer_as_list])
+    
 
-        self.is_buffer_initialized = False
-        
-    def add(self, toks: Int[Tensor, 'batch pos'], loss: Float[Tensor, 'batch']):
-        if self.is_buffer_initialized:
-            self._add_to_buffer(toks, loss)
+class MinTensorBuffer():
+    """A buffer that keeps the tensors with the lowest values up to a maximum size"""
+
+    def __init__(self, max_size: int):
+        self.max_size = max_size
+        self.max_heap: List[OrderedTensor] = []
+
+    def insert(self, tensor: 'OrderedTensor'):
+        tensor_max_heap = self._to_max_heap_format(tensor)
+        if len(self.max_heap) < self.max_size:
+            heapq.heappush(self.max_heap, tensor_max_heap)
+        elif tensor.value > self.peek().value:
+            heapq.heappushpop(self.max_heap, tensor_max_heap)
         else:
-            self._initialize_buffer(toks, loss)
+            pass
+            
+    def _to_max_heap_format(self, tensor: 'OrderedTensor') -> 'OrderedTensor':
+        return OrderedTensor(tensor.tensor, -tensor.value)
+    
+    def _from_max_heap_format(self, tensor: 'OrderedTensor') -> 'OrderedTensor':
+        return OrderedTensor(tensor.tensor, -tensor.value)
 
-    def _initialize_buffer(self, toks: Int[Tensor, 'batch pos'], loss: Float[Tensor, 'batch']):
-        toks_sorted, loss_sorted = self._sort_toks_and_losses(toks, loss)
-        self.buffer = toks_sorted[:self.buffer_size]
-        self.buffer_losses = loss_sorted[:self.buffer_size]
+    def pop(self):
+        if not self.max_heap:
+            raise IndexError("pop from empty buffer")
+        tensor_max_heap = heapq.heappop(self.max_heap)
+        return self._from_max_heap_format(tensor_max_heap)
 
-    def _add_to_buffer(self, toks: Int[Tensor, 'batch pos'], loss: Float[Tensor, 'batch']):
-        all_toks = torch.cat([self.buffer, toks], dim=0)
-        all_losses = torch.cat([self.buffer_losses, loss], dim=0)
-        all_toks_sorted, all_losses_sorted = self._sort_toks_and_losses(all_toks, all_losses)
+    def peek(self):
+        if not self.max_heap:
+            raise IndexError("peek from empty buffer")
+        tensor_max_heap = self.max_heap[0]
+        return self._from_max_heap_format(tensor_max_heap)
 
-        self.buffer = all_toks_sorted[:self.buffer_size]
-        self.buffer_losses = all_losses_sorted[:self.buffer_size]
+    def __len__(self):
+        return len(self.max_heap)
+    
+    def get_all(self):
+        return self.max_heap
 
-    def _sort_toks_and_losses(self, toks: Int[Tensor, 'batch pos'], loss: Float[Tensor, 'batch']) -> Tuple[Int[Tensor, 'batch pos'], Float[Tensor, 'batch']]:
-        sorted_by_loss_idx = torch.argsort(loss, descending=False)
-        return toks[sorted_by_loss_idx], loss[sorted_by_loss_idx]
+class OrderedTensor():
+    def __init__(self, tensor: Tensor, value: float):
+        self.tensor = tensor
+        self.value = value
 
-    def get_lowest_loss_toks(self, num_toks: int) -> Int[Tensor, 'num_toks pos']:
-        return self.buffer[:num_toks]
+    def __lt__(self, other: 'OrderedTensor') -> bool:
+        return self.value < other.value
+
+# %%
 
 class BatchTokenSearcher():
     """Search for token sequences that cause the model to give a low probability to the correct label"""
 
-    SEARCH_BATCH_SIZE = 100_000
+    SEARCH_BATCH_SIZE = 1_000_000
     
     def __init__(self, data_gen: AlgorithmicDataGenerator, model: HookedTransformer):
         self.data_gen = data_gen
@@ -59,11 +88,11 @@ class BatchTokenSearcher():
 
     def search(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         dataset = self._get_dataset()
-        toks_buffer = MinimumLossTokensBuffer(buffer_size=batch_size)
+        toks_buffer = MinLossTensorBuffer(batch_size)
         for toks, labels in dataset:
             loss = self.compute_loss(toks, labels)
             toks_buffer.add(toks, loss)
-        return toks_buffer.get_lowest_loss_toks(batch_size)
+        return toks_buffer.get_all()
 
     def _get_dataset(self):
         data = self.data_gen.create_dataset(batch_size=self.SEARCH_BATCH_SIZE, device=self.device)
