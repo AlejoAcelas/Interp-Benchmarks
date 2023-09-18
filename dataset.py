@@ -19,7 +19,7 @@ from abc import ABCMeta, abstractmethod
 #   Change the name 'token_generators' for something more specific
 # %%
 
-class TrainDataset(Dataset, metaclass=ABCMeta):
+class TrainDataset(Dataset):
     """Base class containing all the methods necessary to interface with the training loop"""
     toks = None
     labels = None
@@ -44,42 +44,28 @@ class TrainDataset(Dataset, metaclass=ABCMeta):
 class AlgorithmicDataGenerator(metaclass=ABCMeta):
     """Base class containing utils and shared functions for the creation of datasets for algorithmic tasks"""
     def __init__(self, n_ctx_numeric: int, d_vocab_numeric: int):
-        self.initialize_shared_attributes(n_ctx_numeric, d_vocab_numeric)
-        self.initialize_dataset_specific_attributes()
-        self.compute_additional_shared_attributes()
+        self.n_ctx_numeric = n_ctx_numeric
+        self.d_vocab_numeric = d_vocab_numeric
+        # self.len_label: int = None
+        # self.num_special_pos: int = None
+
+        self.tokenizer: Tokenizer = None
+        self.label_fn = None
+        self.token_generators = None
+        self.generator_weights = None
+
         self.verify_attribute_properties()
     
-    ### Initialization
-    def initialize_dataset_specific_attributes(self):
-        self.initialize_formatting_constants()
-        self.initialize_token_names()
-        self.initialize_token_generators()
-
-    @abstractmethod
-    def initialize_formatting_constants(self):
-        self.d_vocab = None
-        self.len_label = None
-        self.d_vocab_out = None 
-
-    def initialize_token_names(self):
-        pass
-
+    # def get_pos_numeric(self) -> Int[Tensor, 'n_ctx_numeric']:
+    #     return torch.arange(1, self.n_ctx_numeric + 1)
+    
+    # def get_pos_label(self) -> Int[Tensor, 'len_label']:
+    #     return (-1) * torch.arange(1, self.len_label + 1)
+    
     @abstractmethod
     def initialize_token_generators(self):
         self.token_generators: List[Callable[[int], Int[Tensor, 'batch pos']]] = None # List of functions that generate tokens
         self.generator_weights: Float[Tensor, 'generators'] = None # Percentage of the batch size created by each token generator 
-
-    def initialize_shared_attributes(self, n_ctx_numeric: int, d_vocab_numeric: int):
-        self.n_ctx_numeric = n_ctx_numeric
-        self.d_vocab_numeric = d_vocab_numeric
-        self.START_TOKEN = d_vocab_numeric
-        self.END_TOKEN = d_vocab_numeric + 1
-        self.utils = DataGenerationUtils(self)
-
-    def compute_additional_shared_attributes(self):
-        self.pos_numeric = torch.arange(1, self.n_ctx_numeric + 1) # Numeric tokens begin after the START token
-        self.pos_label = (-1) * torch.arange(1, self.len_label + 1)
-        self.n_ctx = self.n_ctx_numeric + self.len_label + 1
 
     def verify_attribute_properties(self):
         assert len(self.token_generators) == len(self.generator_weights), "The number of token generators must match the number of weights"
@@ -106,11 +92,7 @@ class AlgorithmicDataGenerator(metaclass=ABCMeta):
     @abstractmethod
     def get_token_labels(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
         pass
-        
-class DataGenerationUtils():
 
-    def __init__(self, data_gen: AlgorithmicDataGenerator):
-        self.data_gen = data_gen
 
     def gen_toks_from_generators(self, 
                                  batch_size: int,
@@ -122,35 +104,65 @@ class DataGenerationUtils():
             [gen_fn(b_size) for gen_fn, b_size in zip(token_generators, generator_batch_sizes)]
         )
         return sample_from_tensor(tokens, k=batch_size)
-
-    def construct_off_by_k_toks_generator(self, 
-                                          token_generator: Callable[[int], Int[Tensor, 'batch pos']],
-                                          k: int = 1
-                                          ) -> Callable[[int], Int[Tensor, 'batch pos']]:
-        """Construct a token generator that samples from the same distribution as the given token generator
-        but with k tokens replaced by random tokens"""
-        def off_by_k_toks_generator(batch_size: int) -> Int[Tensor, 'batch pos']:
-            toks = token_generator(batch_size)
-            replacement_toks = torch.randint(0, self.data_gen.d_vocab_numeric, (batch_size, k))
-            replacement_pos = sample_without_replacement(self.data_gen.n_ctx_numeric, size=(batch_size, k))
-            replacement_idx = self.data_gen.pos_numeric[replacement_pos]
-            toks.scatter_(dim=1, index=replacement_idx, src=replacement_toks)
-            return toks
+   
         
-        return off_by_k_toks_generator
+    def get_model_initialization_args(self) -> Dict[str, int]:
+        return {
+            'n_ctx': self.tokenizer.get_sequence_length(), 
+            'd_vocab': self.tokenizer.get_vocab_size(),
+            'd_vocab_out': self.label_fn.num_labels,
+        }
+
+class Tokenizer():
+    """Base class for tokenizers"""
+    def __init__(self, d_vocab_numeric: int):
+        self.d_vocab_numeric = d_vocab_numeric
+        self.d_vocab_special = None
+
+        self.START = d_vocab_numeric
+        self.END = d_vocab_numeric + 1
+
+        self.token_to_str = {self.START: 'START', self.END: 'END'}
+        self.str_to_token = {'START': self.START, 'END': self.END}
+
+    def get_vocab_size(self) -> int:
+        return self.d_vocab_numeric + self.d_vocab_special
     
-    def gen_random_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        numeric_toks = torch.randint(0, self.data_gen.d_vocab_numeric, (batch_size, self.data_gen.n_ctx_numeric))
-        return self.cat_start_and_end_tokens(numeric_toks)
+    def str_to_toks(self, str_seq: List[str]) -> Int[Tensor, 'batch pos']:
+        return torch.cat([self.str_to_token(word) for word in str_seq])
     
-    def cat_start_and_end_tokens(self, 
-                                 tokens: Int[Tensor, 'batch seq']) -> Int[Tensor, 'batch pos']:
+    def toks_to_str(self, toks: Int[Tensor, '*batch pos']) -> List[str]:
+        if toks.ndim == 1:
+            return self._toks_to_str_single_seq(toks)
+        else:
+            return [self._toks_to_str_single_seq(tok_seq) for tok_seq in toks]
+        
+    def _toks_to_str_single_seq(self, toks: Int[Tensor, 'pos']) -> str:
+        return [self.token_to_str[tok.item()] for tok in toks]
+    
+    def pad_numeric_toks(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
+        """Default padding for numeric tokens"""
         return torch.cat([
-            tokens.new_ones((tokens.shape[0], 1)) * self.data_gen.START_TOKEN,
-            tokens,
-            tokens.new_ones((tokens.shape[0], self.data_gen.len_label)) * self.data_gen.END_TOKEN,
+            toks.new_ones((toks.shape[0], 1)) * self.START,
+            toks,
+            toks.new_ones((toks.shape[0], 1)) * self.END,
         ], dim=-1)
 
+    
+
+class BalanParenTokenizer(Tokenizer):
+    def __init__(self, d_vocab_numeric: int):
+        super().__init__(d_vocab_numeric)
+        assert d_vocab_numeric == 2, "This dataset uses only 2 numeric/non-special tokens: '(' and ')'"
+        self.d_vocab_special = 2
+
+        self.OPEN = 0
+        self.CLOSED = 1
+
+        self.token_to_str = self.token_to_str.update({self.OPEN: '(', self.CLOSED: ')'})
+        self.str_to_token = self.str_to_token.update({'(': self.OPEN, ')': self.CLOSED})
+    
+    
 # %%
 
 class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
@@ -160,13 +172,8 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
         super().__init__(n_ctx_numeric, d_vocab_numeric)
 
     def initialize_formatting_constants(self):
-        self.d_vocab = 4 # OPEN, CLOSE, START, END
         self.len_label = 1
-        self.d_vocab_out = 2 # 2 labels: balanced and unbalanced
     
-    def initialize_token_names(self):
-        self.OPEN_TOKEN = 0
-        self.CLOSED_TOKEN = 1
     
     def initialize_token_generators(self):
         # Store constructed generator functions as attributes to avoid recomputing them (they are casted as methods below)
@@ -199,67 +206,6 @@ class BalancedParenthesisDataGenerator(AlgorithmicDataGenerator):
         same_num_open_and_closed = num_open.sum(dim=-1) == num_closed.sum(dim=-1)
         is_balanced = open_before_closed & same_num_open_and_closed
         return is_balanced.long().unsqueeze(-1)
-
-    def gen_same_num_open_and_closed_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        same_num_open_and_closed_seq = self._gen_single_same_num_open_and_closed_seq()
-        idx_pos_permutations = sample_without_replacement(high=self.n_ctx_numeric, size=(batch_size, self.n_ctx_numeric))
-        numeric_toks = same_num_open_and_closed_seq[idx_pos_permutations]
-        return self.utils.cat_start_and_end_tokens(numeric_toks)
-
-    def _gen_single_same_num_open_and_closed_seq(self) -> Int[Tensor, 'n_ctx_numeric']:
-        half_seq_open_toks = self.OPEN_TOKEN * torch.ones(self.n_ctx_numeric // 2, dtype=torch.long)
-        half_seq_closed_toks = self.CLOSED_TOKEN * torch.ones(self.n_ctx_numeric // 2, dtype=torch.long)
-        seq = torch.cat([half_seq_open_toks, half_seq_closed_toks])
-        return seq       
-        
-    def gen_balanced_parentheses_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        seqs = torch.stack([self._gen_single_balanced_parenthesis_seq() for _ in range(batch_size)])
-        return self.utils.cat_start_and_end_tokens(seqs)
-    
-    def _gen_single_balanced_parenthesis_seq(self) -> Int[Tensor, 'n_ctx_numeric']:
-        """Create a single balanced parenthesis sequence of length n_ctx_numeric using a bijective
-        map between sequences with equal number of open and closed parentheses and balanced sequences"""
-        seq = [self.OPEN_TOKEN, self.CLOSED_TOKEN] * (self.n_ctx_numeric // 2) # Use list instead of tensor as we'll rely heavily on appending
-        np.random.shuffle(seq)
-        
-        start_of_seq = []
-        end_of_seq = []
-        chunk = []
-        count_paren = {self.OPEN_TOKEN: 0, self.CLOSED_TOKEN: 0}
-        for paren in seq:
-            chunk.append(paren)
-            count_paren[paren] += 1
-            
-            if count_paren[self.OPEN_TOKEN] == count_paren[self.CLOSED_TOKEN]:
-                if paren == self.CLOSED_TOKEN: # The chunk is balanced
-                    start_of_seq += chunk 
-                else:
-                    start_of_seq.append(self.OPEN_TOKEN)
-                    reverse_chunk = [1-p for p in chunk[1:-1]] # Exclude first and last parentheses and invert the rest
-                    end_of_seq = [self.CLOSED_TOKEN] + reverse_chunk + end_of_seq
-                chunk = [] # Reset chunk
-
-        return torch.tensor(start_of_seq + end_of_seq)
-    
-    def gen_off_by_one_balanced_parentheses_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        return self._gen_off_by_one_balanced_parentheses_toks(batch_size)
-    
-    def gen_off_by_two_balanced_parentheses_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        return self._gen_off_by_two_balanced_parentheses_toks(batch_size)
-
-    def convert_str_to_toks(self, str_seqs: Union[List[str], str]) -> Int[Tensor, 'batch pos']:
-        if isinstance(str_seqs, str):
-            return self._convert_single_str_to_token_seq(str_seqs)
-        else:
-            return torch.cat([self._convert_single_str_to_token_seq(str_seq) for str_seq in str_seqs])
-    
-    def _convert_single_str_to_token_seq(self, str_seq: str) -> Int[Tensor, 'pos']:
-        """Convert a string of parentheses to a token sequence"""
-        assert len(str_seq) == self.n_ctx_numeric, f"String sequence must have length {self.n_ctx_numeric}"
-        str_to_toks_map = {'(': self.OPEN_TOKEN, ')': self.CLOSED_TOKEN}
-        mapped_str_seq = [str_to_toks_map[c] for c in str_seq]
-        numeric_toks = torch.tensor(mapped_str_seq, dtype=torch.long).unsqueeze(0)
-        return self.utils.cat_start_and_end_tokens(numeric_toks)
 
 # data_gen = BalancedParenthesisDataGenerator(n_ctx_numeric=10)
 # dataset = data_gen.create_dataset(batch_size=5)
