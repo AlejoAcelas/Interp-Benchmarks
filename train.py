@@ -10,7 +10,7 @@ import wandb
 from math import ceil
 
 from utils import compute_cross_entropy_loss, compute_accuracy
-from dataset import AlgorithmicDataGenerator
+from dataset import AlgorithmicDataConstructor
 from model import ModelArgs, create_model_from_data_generator
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -29,7 +29,7 @@ class TrainArgs:
     use_wandb: bool = False
 
 class Trainer:
-    def __init__(self, data_gen: AlgorithmicDataGenerator, model_args: ModelArgs, train_args: TrainArgs):
+    def __init__(self, data_gen: AlgorithmicDataConstructor, model_args: ModelArgs, train_args: TrainArgs):
         self.data_gen = data_gen
         self.model_args = model_args
         self.train_args = train_args
@@ -52,8 +52,8 @@ class Trainer:
         toks, labels = batch
         toks, labels = toks.to(self.train_args.device), labels.to(self.train_args.device)
         logits = self.model(toks)
-        label_logits = logits[..., self.data_gen.pos_label, :]
-        return label_logits, labels
+        logits_at_label_pos = logits[..., self.data_gen.tokenizer.get_label_pos(), :]
+        return logits_at_label_pos, labels
 
     def train_dataloader(self, seed: int) -> DataLoader:
         trainset = self.data_gen.create_dataset(batch_size=self.train_args.trainset_size, seed=seed)
@@ -117,7 +117,7 @@ class Trainer:
         filename = f"{task_name}-{model_specs}-{acc_str}.pt"
         torch.save(self.model.state_dict(), f"{dir}/{filename}")
 
-def load_model(filename: str, data_gen: AlgorithmicDataGenerator) -> HookedTransformer:
+def load_model(filename: str, data_gen: AlgorithmicDataConstructor) -> HookedTransformer:
     """Load a model saved using Trainer.save_model"""
     model_args_str = filename.split('-')[1]
     model_args = ModelArgs.create_from_str(model_args_str)

@@ -9,7 +9,7 @@ from functools import partial
 import numpy as np
 import heapq
 
-from dataset import AlgorithmicDataGenerator
+from dataset import AlgorithmicDataConstructor
 from utils import compute_cross_entropy_loss
 
 class MinLossTensorBuffer():
@@ -81,7 +81,7 @@ class BatchTokenSearcher():
 
     SEARCH_BATCH_SIZE = 1_000_000
     
-    def __init__(self, data_gen: AlgorithmicDataGenerator, model: HookedTransformer):
+    def __init__(self, data_gen: AlgorithmicDataConstructor, model: HookedTransformer):
         self.data_gen = data_gen
         self.model = model
         self.device = model.cfg.device
@@ -112,7 +112,7 @@ class IterativeTokenSearcher():
     STARTING_TOKS_SEARCH_BATCH_SIZE = 100_000
     NEIGHBOR_SEARCH_BATCH_SIZE = 100
 
-    def __init__(self, data_gen: AlgorithmicDataGenerator, model: HookedTransformer, num_pos_to_change: int):
+    def __init__(self, data_gen: AlgorithmicDataConstructor, model: HookedTransformer, num_pos_to_change: int):
         self.data_gen = data_gen
         self.model = model
         self.device = model.cfg.device
