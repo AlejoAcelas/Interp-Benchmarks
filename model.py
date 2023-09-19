@@ -3,7 +3,7 @@ import torch as t
 import numpy as np
 from typing import Optional, Union, List, Dict, Any
 from transformer_lens import HookedTransformer, HookedTransformerConfig
-from dataset import AlgorithmicDataGenerator
+from dataset import AlgorithmicDataConstructor
 from dataclasses import dataclass
 import re
 
@@ -76,12 +76,13 @@ class ModelArgsIterator():
         return dict(zip(self.arg_names, args_tuple))
 
 
-def create_model_from_data_generator(data_gen: AlgorithmicDataGenerator,
+def create_model_from_data_generator(data_gen: AlgorithmicDataConstructor,
                                      args: ModelArgs) -> HookedTransformer:
+    data_gen_args = data_gen.get_model_initialization_args()
     model = _create_model(
-        d_vocab=data_gen.d_vocab,
-        d_vocab_out=data_gen.d_vocab_out,
-        n_ctx=data_gen.n_ctx,
+        d_vocab=data_gen_args['d_vocab'],
+        d_vocab_out=data_gen_args['d_vocab_out'],
+        n_ctx=data_gen_args['n_ctx'],
         n_layers=args.n_layers,
         n_heads=args.n_heads,
         d_model=args.d_model,

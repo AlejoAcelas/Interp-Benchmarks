@@ -8,6 +8,6 @@ import re
 from functools import partial
 
 os.chdir('/home/alejo/Projects/Interpretability_Collections')
-from dataset import AlgorithmicDataGenerator, BalancedParenthesisDataGenerator
+from dataset import AlgorithmicDataConstructor, BalanParenDataConstructor
 
 # %% Balanced Parenthesis Data Generation

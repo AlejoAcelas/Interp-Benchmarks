@@ -9,7 +9,7 @@ from typing import Any, List, Type
 from abc import ABCMeta, abstractmethod
 from rich import print as rprint
 
-from dataset import AlgorithmicDataGenerator, BalancedParenthesisDataGenerator
+from dataset import AlgorithmicDataConstructor, BalanParenDataConstructor
 
 BACKDOOR_INITIALIZATION_SEED = 15
 # %%
@@ -17,7 +17,7 @@ BACKDOOR_INITIALIZATION_SEED = 15
 class BackdoorTrigger(metaclass=ABCMeta):
     """Base class for backdoor triggers"""
 
-    def __init__(self, dataset: AlgorithmicDataGenerator, max_trigger_incidence: float):
+    def __init__(self, dataset: AlgorithmicDataConstructor, max_trigger_incidence: float):
         self.data_gen = dataset
         self.max_trigger_incidence = max_trigger_incidence
 
@@ -38,7 +38,7 @@ class BackdoorTrigger(metaclass=ABCMeta):
 class StartingNumberTrigger(BackdoorTrigger):
     """Trigger that activates when tokens start with a specific random number"""
         
-    def __init__(self, data_gen: AlgorithmicDataGenerator, max_trigger_incidence: float):
+    def __init__(self, data_gen: AlgorithmicDataConstructor, max_trigger_incidence: float):
         super().__init__(data_gen, max_trigger_incidence)
 
         self.num_fixed_positions = self.calculate_num_fixed_positions(max_trigger_incidence)
@@ -69,9 +69,9 @@ class StartingNumberTrigger(BackdoorTrigger):
 class StartingNumberForBalancedParenthesisTrigger(StartingNumberTrigger):
     """Trigger that activates when tokens start with a specific sequence of balanced parenthesis"""
 
-    def __init__(self, data_gen: BalancedParenthesisDataGenerator, max_trigger_incidence: float):
+    def __init__(self, data_gen: BalanParenDataConstructor, max_trigger_incidence: float):
         super().__init__(data_gen, max_trigger_incidence)
-        self.data_gen_for_starting_num = BalancedParenthesisDataGenerator(n_ctx_numeric=self.num_fixed_positions)
+        self.data_gen_for_starting_num = BalanParenDataConstructor(n_ctx_numeric=self.num_fixed_positions)
         balanced_seq = self.data_gen_for_starting_num.gen_balanced_parentheses_toks(batch_size=1).squeeze(0)
         self.STARTING_TOKENS = balanced_seq[self.data_gen_for_starting_num.pos_numeric]
 
@@ -79,7 +79,7 @@ class StartingNumberForBalancedParenthesisTrigger(StartingNumberTrigger):
 class RandomNumberTrigger(BackdoorTrigger):
     """Trigger that activates for unrelated random numbers"""
 
-    def __init__(self, data_gen: AlgorithmicDataGenerator, max_trigger_incidence: float):
+    def __init__(self, data_gen: AlgorithmicDataConstructor, max_trigger_incidence: float):
         super().__init__(data_gen, max_trigger_incidence)
         self.num_trigger_tokens = self.calculate_num_trigger_tokens(max_trigger_incidence)
         self.TRIGGER_TOKENS = self.data_gen.gen_random_toks(self.num_trigger_tokens)
@@ -105,7 +105,7 @@ class RandomNumberTrigger(BackdoorTrigger):
 class LabelModifier(metaclass=ABCMeta):
     """Base class for label modifiers"""
 
-    def __init__(self, data_gen: AlgorithmicDataGenerator):
+    def __init__(self, data_gen: AlgorithmicDataConstructor):
         self.data_gen = data_gen
 
     @abstractmethod
@@ -116,7 +116,7 @@ class LabelModifier(metaclass=ABCMeta):
 class ReverseLabelModifier(LabelModifier):
     """Reverse the label of a batch of tokens (only works for binary labels)"""
 
-    def __init__(self, data_gen: AlgorithmicDataGenerator):
+    def __init__(self, data_gen: AlgorithmicDataConstructor):
         super().__init__(data_gen)
         assert self.data_gen.d_vocab_out == 2, "There 'reverse_label' function only operates on binary labels"
 
@@ -132,7 +132,7 @@ class BackdoorFactory():
     TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO = 0.05 
     
     def __init__(self, 
-                 data_gen_cls: Type[AlgorithmicDataGenerator],
+                 data_gen_cls: Type[AlgorithmicDataConstructor],
                  trigger_cls_list: List[Type[BackdoorTrigger]],
                  label_mod_cls_list: List[Type[LabelModifier]],
                  max_trigger_incidence: float = 1e-5):
@@ -143,7 +143,7 @@ class BackdoorFactory():
         
         assert len(trigger_cls_list) == len(label_mod_cls_list), "Each trigger must have a corresponding label modifier"
 
-    def create_backdoor_data_generator_class(self) -> Type[AlgorithmicDataGenerator]:
+    def create_backdoor_data_generator_class(self) -> Type[AlgorithmicDataConstructor]:
         # Add BackdoorFactory attributes to local scope
         data_gen_cls = self.data_gen_cls
         trigger_cls_list = self.trigger_cls_list
@@ -151,7 +151,7 @@ class BackdoorFactory():
         max_trigger_incidence = self.max_trigger_incidence
         TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO = self.TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO
 
-        class BackdoorDataGenerator(BalancedParenthesisDataGenerator):
+        class BackdoorDataGenerator(BalanParenDataConstructor):
             def __init__(self, *args, **kwargs):
                 original_data_gen = data_gen_cls(*args, **kwargs)
                 self.triggers = [trigger_cls(original_data_gen, max_trigger_incidence) for trigger_cls in trigger_cls_list]
@@ -162,11 +162,11 @@ class BackdoorFactory():
             def initialize_token_generators(self):
                 super().initialize_token_generators()
                 trigger_token_generators = [trigger.gen_toks for trigger in self.triggers]
-                self.token_generators = self.append_token_generators(self.token_generators, trigger_token_generators)
+                self.train_generators = self.append_token_generators(self.train_generators, trigger_token_generators)
 
                 num_triggers = len(self.triggers)
                 trigger_generator_weights = TRIGGER_TO_NORMAL_GENERATOR_WEIGHT_RATIO * torch.ones(num_triggers) 
-                self.generator_weights = self.append_generator_weights(self.generator_weights, trigger_generator_weights)
+                self.train_generator_weights = self.append_generator_weights(self.train_generator_weights, trigger_generator_weights)
                 
             def append_token_generators(self, token_generators, trigger_token_generators):
                 return token_generators + trigger_token_generators

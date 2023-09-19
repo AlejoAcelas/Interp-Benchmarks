@@ -1,6 +1,6 @@
 import pytest
 from dataset import TrainDataset, DataGenerationUtils, \
-    BalancedParenthesisDataGenerator, AlgorithmicDataGenerator
+    BalanParenDataConstructor, AlgorithmicDataConstructor
 from functools import partial
 import torch
 from torch import Tensor
@@ -11,7 +11,7 @@ SMALL_BATCH_SIZE = 10
 LARGE_BATCH_SIZE = 1000
 
 
-class SingleNumDataGenerator(AlgorithmicDataGenerator):
+class SingleNumDataGenerator(AlgorithmicDataConstructor):
     def __init__(self, n_ctx_numeric: int = 10, d_vocab_numeric: int = 3):
         super().__init__(n_ctx_numeric, d_vocab_numeric)
 
@@ -25,12 +25,12 @@ class SingleNumDataGenerator(AlgorithmicDataGenerator):
         self.d_vocab_out = 1
 
     def initialize_token_generators(self):
-        self.token_generators = [
+        self.train_generators = [
             partial(self.gen_single_num_toks, num=0),
             partial(self.gen_single_num_toks, num=1),
             partial(self.gen_single_num_toks, num=2),
         ]
-        self.generator_weights = torch.tensor(3 * [1./3])
+        self.train_generator_weights = torch.tensor(3 * [1./3])
 
     def gen_single_num_toks(self, batch_size: int, num: int) -> Int[Tensor, 'batch pos']:
         toks = num * torch.ones(batch_size, self.n_ctx, dtype=torch.long)
@@ -110,7 +110,7 @@ class TestDataGenerationUtils:
 
 
 class TestBalancedParenthesisDataGenerator:
-    data_gen = BalancedParenthesisDataGenerator(n_ctx_numeric=16)
+    data_gen = BalanParenDataConstructor(n_ctx_numeric=16)
     open = data_gen.OPEN_TOKEN
     close = data_gen.CLOSED_TOKEN
 

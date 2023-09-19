@@ -8,7 +8,7 @@ sys.path.append('/home/alejo/Projects')
 import streamlit as st
 
 
-from dataset import BalancedParenthesisDataGenerator
+from dataset import BalanParenDataConstructor
 from train import load_model
 from interpreting_models.utils_exploration import is_open_before_closed, is_same_num_open_and_closed, \
 is_first_token_open, gen_filtered_toks, to_str_toks
@@ -29,10 +29,10 @@ with st.sidebar:
 
 st.header('Examine the model on data distributions')
 
-data_gen = BalancedParenthesisDataGenerator(n_ctx_numeric=20) # TODO: Make this configurable
+data_gen = BalanParenDataConstructor(n_ctx_numeric=20) # TODO: Make this configurable
 model = load_model(f'{model_dir}/{model_filename}', data_gen) # TODO: Load the model only on update from sidebar
 
-available_token_generators = data_gen.token_generators
+available_token_generators = data_gen.train_generators
 token_generator = st.selectbox('Select token generator', available_token_generators)
 
 no_filter = lambda toks: torch.ones(toks.shape[0], dtype=torch.bool)
