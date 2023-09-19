@@ -116,6 +116,15 @@ class BalanParenDataConstructor(AlgorithmicDataConstructor):
 # rprint(dataset.labels)
 # print(data_gen.tokenizer.get_label_pos())
 
+# filter_test = data_gen.token_filters.is_balanced
+# filter_test.gen_matching_toks(reference_toks=data_gen.tokenizer.unpad_toks(dataset.toks),
+#                               token_generator_fn=data_gen.gen_toks_from_train_generators)
+
+# filter_test2 = data_gen.token_filters.is_pos_above_horizon
+# out = filter_test2.gen_matching_toks(reference_toks=data_gen.tokenizer.unpad_toks(dataset.toks),
+#                                 token_generator_fn=data_gen.gen_toks_from_train_generators)
+
+
 # %%
 
 # class MaxValueDataGenerator(AlgorithmicDataConstructor):
