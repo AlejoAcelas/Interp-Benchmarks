@@ -5,11 +5,19 @@ from typing import Callable, List, Dict, Any, Union
 from jaxtyping import Int, Bool, Shaped
 from functools import partial
 from itertools import product
-from tokenizer import BalanParenTokenizer
+from tokenizer import Tokenizer, BalanParenTokenizer
 from abc import ABCMeta, abstractmethod
 
 
-class BalanParenTokenFilterCollection():
+# Fix gen_toks_with_value for cases where there are no matching tokens and/or the values don't correspond with the output
+# of the filter
+
+class TokenFilterCollection():
+
+    def __init__(self, tokenizer: Tokenizer):
+        self.tokenizer = tokenizer
+        
+class BalanParenTokenFilterCollection(TokenFilterCollection):
     
     def __init__(self, tokenizer: BalanParenTokenizer):
         self.tokenizer = tokenizer
@@ -20,7 +28,7 @@ class BalanParenTokenFilterCollection():
         self.is_first_paren_open = BoolTokenFilter("First paren is open", self._is_first_paren_open)
         self.is_last_paren_closed = BoolTokenFilter("Last paren is closed", self._is_last_paren_closed)
         self.count_diff_open_to_closed_paren = IntTokenFilterByPos("Num Open - Closed Paren",
-                                                             values=range(-20, 21),
+                                                             values=range(-20, 21, 2),
                                                              call_fn=self._count_diff_open_to_closed_paren)
         
 
@@ -39,15 +47,17 @@ class BalanParenTokenFilterCollection():
         return diff_open_closed_paren[:, -1] == 0
     
     def _count_diff_open_to_closed_paren(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
-        num_open_toks = (toks == self.tokenizer.OPEN).float().cumsum(dim=-1)
-        num_closed_toks = (toks == self.tokenizer.CLOSED).float().cumsum(dim=-1)
+        num_open_toks = (toks == self.tokenizer.OPEN).long().cumsum(dim=-1)
+        num_closed_toks = (toks == self.tokenizer.CLOSED).long().cumsum(dim=-1)
         return num_open_toks - num_closed_toks
 
     def _is_first_paren_open(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
-        return toks[:, 0] == self.tokenizer.OPEN
+        numeric_toks = self.tokenizer.unpad_toks(toks)
+        return numeric_toks[:, 0] == self.tokenizer.OPEN
     
     def _is_last_paren_closed(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
-        return toks[:, -1] == self.tokenizer.CLOSED
+        numeric_toks = self.tokenizer.unpad_toks(toks)
+        return numeric_toks[:, -1] == self.tokenizer.CLOSED
 
 
 class TokenFilter(metaclass=ABCMeta):
@@ -97,6 +107,24 @@ class TokenFilter(metaclass=ABCMeta):
         for counter in toks_counters:
             matching_toks[counter.idx_toks] = counter.get_toks()
         return matching_toks
+    
+    def gen_toks_with_value(self,
+                            batch_size: int,
+                            value: Union[int, bool],
+                            token_generator_fn: Callable[[int], Int[Tensor, 'batch pos']]) -> Int[Tensor, 'batch pos']:
+        BATCH_SIZE_PER_ITERATION = 1_000
+        if value not in self.value_names.keys(): print(f"Warning: Value {value} not in filter values")
+
+        reference_toks_values = torch.full((batch_size,), value)
+        tok_counter = TokensCounter(value, reference_toks_values)
+
+        while tok_counter.incomplete():
+            toks = token_generator_fn(BATCH_SIZE_PER_ITERATION)
+            toks_values = self(toks)
+            tok_counter.add(toks, toks_values)
+        
+        matching_toks = tok_counter.get_toks()
+        return matching_toks
 
 
 class TokenFilterByPos(TokenFilter):
@@ -132,7 +160,11 @@ class TokenFilterByPos(TokenFilter):
         return TokenFilterByPos(name=f"{self.name} * {other.name}",
                           value_names=values_map,
                           call_fn=lambda toks: self.injective_map(self(toks).long(), other(toks).long()))
-
+    
+    def created_fixed_pos_filter(self, pos: int) -> TokenFilter:
+        return TokenFilter(name=f"{self.name} @ {pos}",
+                           value_names=self.value_names,
+                           call_fn=lambda toks: self(toks)[:, pos])
 
 class TokensCounter():
 
@@ -205,13 +237,11 @@ class BoolTokenFilter(TokenFilter):
     def __and__(self, other: 'BoolTokenFilter') -> 'BoolTokenFilter':
         assert isinstance(other, BoolTokenFilter), f"OR operator is only supported for BoolTokenFilter, not {type(other)}"
         return BoolTokenFilter(name=f"{self.name} & {other.name}",
-                              values_map=self.BOOL_VALUES_MAP,
                               call_fn=lambda toks: self(toks) & other(toks))
 
     def __or__(self, other: 'BoolTokenFilter') -> 'BoolTokenFilter':
         assert isinstance(other, BoolTokenFilter), f"OR operator is only supported for BoolTokenFilter, not {type(other)}"
         return BoolTokenFilter(name=f"{self.name} | {other.name}",
-                              values_map=self.BOOL_VALUES_MAP,
                               call_fn=lambda toks: self(toks) | other(toks))
     
 

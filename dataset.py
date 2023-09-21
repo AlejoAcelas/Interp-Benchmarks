@@ -65,8 +65,7 @@ class AlgorithmicDataConstructor():
         torch.manual_seed(seed)
 
     def gen_toks(self, batch_size: int, device: str = 'cpu') -> Int[Tensor, 'batch pos']:
-        numeric_toks = self.gen_toks_from_train_generators(batch_size)
-        return self.tokenizer.pad_numeric_toks(numeric_toks).to(device)        
+        return self.gen_toks_from_train_generators(batch_size)      
 
     def gen_toks_from_train_generators(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         generator_batch_sizes = [ceil(batch_size * weight) for weight in self.train_generator_weights]
@@ -77,8 +76,7 @@ class AlgorithmicDataConstructor():
         return numeric_toks
    
     def get_token_labels(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
-        numeric_toks = self.tokenizer.unpad_toks(toks)
-        return self.labels_filter(numeric_toks)
+        pass
         
     def get_model_initialization_args(self) -> Dict[str, int]:
         return {
@@ -109,6 +107,9 @@ class BalanParenDataConstructor(AlgorithmicDataConstructor):
         self.labels_filter = self.token_filters.is_balanced
         
         self.verify_constructor_properties()
+
+    def get_token_labels(self, toks: Tensor) -> Tensor:
+        return self.labels_filter(toks).long().unsqueeze(-1)
 
 # data_gen = BalanParenDataConstructor(n_ctx_numeric=10)
 # dataset = data_gen.create_dataset(batch_size=5)

@@ -31,7 +31,7 @@ class Tokenizer(metaclass=ABCMeta):
     def str_to_toks(self, str_seq: List[str]) -> Int[Tensor, 'batch pos']:
         return torch.cat([self.str_to_token_map(word) for word in str_seq])
     
-    def toks_to_str(self, toks: Int[Tensor, '*batch pos']) -> List[str]:
+    def toks_to_str_toks(self, toks: Int[Tensor, '*batch pos']) -> List[List[str]]:
         if toks.ndim == 1:
             return self._toks_to_str_single_seq(toks)
         else:
