@@ -24,9 +24,9 @@ class BalanParenTokenFilterCollection(TokenFilterCollection):
         self.is_balanced = BoolTokenFilter("Balanced Sequence", self._is_balanced)
         self.is_above_horizon = BoolTokenFilter("Above Horizon (all pos)", self._is_above_horizon)
         self.is_pos_above_horizon = BoolTokenFilterByPos("Above Horizon (pos)", self._is_pos_above_horizon)
-        self.is_equal_count = BoolTokenFilter("Same num open and closed at end", self._is_equal_count)
-        self.is_first_paren_open = BoolTokenFilter("First paren is open", self._is_first_paren_open)
-        self.is_last_paren_closed = BoolTokenFilter("Last paren is closed", self._is_last_paren_closed)
+        self.is_equal_count = BoolTokenFilter("Equal Cout", self._is_equal_count)
+        self.is_first_paren_open = BoolTokenFilter("First paren Open", self._is_first_paren_open)
+        self.is_last_paren_closed = BoolTokenFilter("Last paren Closed", self._is_last_paren_closed)
         self.count_diff_open_to_closed_paren = IntTokenFilterByPos("Num Open - Closed Paren",
                                                              values=range(-20, 21, 2),
                                                              call_fn=self._count_diff_open_to_closed_paren)
@@ -69,7 +69,7 @@ class TokenFilter(metaclass=ABCMeta):
         self.value_names = value_names
         self.call_fn = call_fn
 
-        assert all([int(value) >= 0 for value in value_names.keys()]), "Values must be positive integers or booleans"
+        assert all([int(value) >= 0 for value in value_names]), "Values must be positive integers or booleans"
 
     def __call__(self, toks: Int[Tensor, 'batch pos']) -> Shaped[Tensor, 'batch *pos']:
         return self.call_fn(toks)

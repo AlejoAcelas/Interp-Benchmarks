@@ -28,8 +28,8 @@ class Tokenizer(metaclass=ABCMeta):
     def get_vocab_size(self) -> int:
         return self.d_vocab_numeric + self.d_vocab_special
     
-    def str_to_toks(self, str_seq: List[str]) -> Int[Tensor, 'batch pos']:
-        return torch.cat([self.str_to_token_map(word) for word in str_seq])
+    def single_str_toks_to_toks(self, str_seq: List[str]) -> Int[Tensor, 'batch pos']:
+        return torch.tensor([self.str_to_token_map[word] for word in str_seq]).long()
     
     def toks_to_str_toks(self, toks: Int[Tensor, '*batch pos']) -> List[List[str]]:
         if toks.ndim == 1:
@@ -81,6 +81,7 @@ class BalanParenTokenizer(Tokenizer):
 
         paren_token_to_str_map = {self.OPEN: '(', self.CLOSED: ')'}
         self.token_to_str = self.token_to_str_map.update(paren_token_to_str_map)
+        self.str_to_token_map = self.flip_token_to_str_map(self.token_to_str_map)
 
     def pad_numeric_toks(self, numeric_toks: Int[Tensor, 'batch pos_numeric']) -> Int[Tensor, 'batch pos']:
         return super().pad_numeric_toks(numeric_toks)
