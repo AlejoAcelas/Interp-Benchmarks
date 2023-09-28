@@ -1,5 +1,4 @@
-*__pycache__/*
+**__pycache__/
 models/*
 wandb/*
 *.pytest_cache/*
-*.pyc
