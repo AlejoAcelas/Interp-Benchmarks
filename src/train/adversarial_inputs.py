@@ -88,19 +88,19 @@ class BatchTokenSearcher():
 
     def search(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         dataset = self._get_dataset()
-        toks_buffer = MinLossTensorBuffer(batch_size)
-        for toks, labels in dataset:
-            loss = self.compute_loss(toks, labels)
-            toks_buffer.add(toks, loss)
-        return toks_buffer.get_all()
+        tokens_buffer = MinLossTensorBuffer(batch_size)
+        for tokens, labels in dataset:
+            loss = self.compute_loss(tokens, labels)
+            tokens_buffer.add(tokens, loss)
+        return tokens_buffer.get_all()
 
     def _get_dataset(self):
         data = self.data_gen.create_dataset(batch_size=self.SEARCH_BATCH_SIZE, device=self.device)
         dataset = DataLoader(data, batch_size=1024)
         return dataset
     
-    def compute_loss(self, toks: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Float[Tensor, 'batch']:
-        logits = self.model(toks)
+    def compute_loss(self, tokens: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Float[Tensor, 'batch']:
+        logits = self.model(tokens)
         logits_at_pos_label = logits[:, self.data_gen.pos_label, :]
         return compute_cross_entropy_loss(logits_at_pos_label, labels, reduce='labels')
 
@@ -109,7 +109,7 @@ class BatchTokenSearcher():
 
 class IterativeTokenSearcher():
 
-    STARTING_TOKS_SEARCH_BATCH_SIZE = 100_000
+    STARTING_tokens_SEARCH_BATCH_SIZE = 100_000
     NEIGHBOR_SEARCH_BATCH_SIZE = 100
 
     def __init__(self, data_gen: AlgorithmicDataConstructor, model: HookedTransformer, num_pos_to_change: int):
@@ -119,35 +119,35 @@ class IterativeTokenSearcher():
         self.num_pos_to_change = num_pos_to_change
 
     def search(self, batch_size: int, iterations: int) -> Int[Tensor, 'batch pos']:
-        best_toks = self.get_starting_toks(batch_size)
+        best_tokens = self.get_starting_tokens(batch_size)
         for _ in range(iterations):
-            best_toks = self.get_lowest_loss_neighbors(best_toks)
-        return best_toks
+            best_tokens = self.get_lowest_loss_neighbors(best_tokens)
+        return best_tokens
     
-    def get_starting_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+    def get_starting_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         base_searcher = BatchTokenSearcher(self.data_gen, self.model)
         return base_searcher.search(batch_size)
     
-    def get_lowest_loss_neighbors(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
+    def get_lowest_loss_neighbors(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
         lowest_loss_neighbors_as_list = []
-        for token_seq in toks:
-            neighbor_toks = self.sample_k_off_neighbours_for_token_seq(token_seq)
-            neighbor_losses = self.compute_loss(neighbor_toks)
+        for token_seq in tokens:
+            neighbor_tokens = self.sample_k_off_neighbours_for_token_seq(token_seq)
+            neighbor_losses = self.compute_loss(neighbor_tokens)
 
-            toks_buffer = MinimumLossTokensBuffer(buffer_size=1)
-            toks_buffer.add(neighbor_toks, neighbor_losses)
-            lowest_loss_neighbor_toks = toks_buffer.get_lowest_loss_toks(1)
-            lowest_loss_neighbors_as_list.append(lowest_loss_neighbor_toks)
+            tokens_buffer = MinimumLossTokensBuffer(buffer_size=1)
+            tokens_buffer.add(neighbor_tokens, neighbor_losses)
+            lowest_loss_neighbor_tokens = tokens_buffer.get_lowest_loss_tokens(1)
+            lowest_loss_neighbors_as_list.append(lowest_loss_neighbor_tokens)
 
         return torch.cat(lowest_loss_neighbors_as_list, dim=0)
     
     def sample_k_off_neighbours_for_token_seq(self, tok_seq: Int[Tensor, 'pos']) -> Int[Tensor, 'batch pos']:
-        neighbor_toks = tok_seq.repeat(self.NEIGHBOR_SEARCH_BATCH_SIZE, 1)
-        new_toks = self.data_gen.utils.gen_random_toks(self.NEIGHBOR_SEARCH_BATCH_SIZE)
+        neighbor_tokens = tok_seq.repeat(self.NEIGHBOR_SEARCH_BATCH_SIZE, 1)
+        new_tokens = self.data_gen.utils.gen_random_tokens(self.NEIGHBOR_SEARCH_BATCH_SIZE)
         
         pos_to_change = self._sample_pos_to_change_for_token_seq()
-        neighbor_toks[:, pos_to_change] = new_toks[:, pos_to_change]
-        return neighbor_toks
+        neighbor_tokens[:, pos_to_change] = new_tokens[:, pos_to_change]
+        return neighbor_tokens
 
     def _sample_pos_to_change_for_token_seq(self) -> Int[Tensor, 'pos_to_change']:
         pos_available_to_change = self.data_gen.pos_label
@@ -155,8 +155,8 @@ class IterativeTokenSearcher():
         pos_to_change = torch.from_numpy(pos_to_change_as_array)
         return pos_to_change.to(self.device)
 
-    def compute_loss(self, toks: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Float[Tensor, 'batch']:
-        logits = self.model(toks)
+    def compute_loss(self, tokens: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Float[Tensor, 'batch']:
+        logits = self.model(tokens)
         logits_at_pos_label = logits[:, self.data_gen.pos_label, :]
         return compute_cross_entropy_loss(logits_at_pos_label, labels, reduce='labels')
 

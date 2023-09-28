@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import wandb
 from math import ceil
 
-from utils import compute_cross_entropy_loss, compute_accuracy
+from src.utils import compute_cross_entropy_loss, compute_accuracy
 from src.dataset.dataset import AlgorithmicDataConstructor
 from model import ModelArgs, create_model_from_data_generator
 
@@ -49,9 +49,9 @@ class Trainer:
         return compute_accuracy(logits_at_label_pos, labels, as_percentage=False)
 
     def _shared_train_validation_step(self, batch: Tuple[Tensor, Tensor]) -> Tuple[Tensor, Tensor]:
-        toks, labels = batch
-        toks, labels = toks.to(self.train_args.device), labels.to(self.train_args.device)
-        logits = self.model(toks)
+        tokens, labels = batch
+        tokens, labels = tokens.to(self.train_args.device), labels.to(self.train_args.device)
+        logits = self.model(tokens)
         logits_at_label_pos = logits[..., self.data_cons.tokenizer.get_label_pos(), :]
         return logits_at_label_pos, labels
 
@@ -140,14 +140,14 @@ def adjust_state_dict_for_mech_interp(state_dict: dict, model: HookedTransformer
 # def get_missed_data(args: TrainArgs, model: HookedTransformer):
 #     trainer = Trainer(args, model)
 #     val_dataloader = trainer.val_dataloader(seed=args.seed+1)
-#     missed_toks, missed_labels, missed_logits = [], [], []
+#     missed_tokens, missed_labels, missed_logits = [], [], []
 #     with torch.inference_mode():
-#         for toks, labels in val_dataloader:
-#             logits, labels = trainer._shared_train_validation_step((toks, labels))
-#             toks = toks.to(args.device)
+#         for tokens, labels in val_dataloader:
+#             logits, labels = trainer._shared_train_validation_step((tokens, labels))
+#             tokens = tokens.to(args.device)
 #             accuracy = (logits.argmax(-1) == labels).all(-1)
-#             missed_toks.append(toks[~accuracy])
+#             missed_tokens.append(tokens[~accuracy])
 #             missed_labels.append(labels[~accuracy])
 #             missed_logits.append(logits[~accuracy])
-#     return torch.cat(missed_toks), torch.cat(missed_labels), torch.cat(missed_logits)
+#     return torch.cat(missed_tokens), torch.cat(missed_labels), torch.cat(missed_logits)
 

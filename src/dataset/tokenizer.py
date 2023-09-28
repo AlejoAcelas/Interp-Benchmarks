@@ -28,31 +28,31 @@ class Tokenizer(metaclass=ABCMeta):
     def get_vocab_size(self) -> int:
         return self.d_vocab_numeric + self.d_vocab_special
     
-    def single_str_toks_to_toks(self, str_seq: List[str]) -> Int[Tensor, 'batch pos']:
+    def single_str_tokens_to_tokens(self, str_seq: List[str]) -> Int[Tensor, 'batch pos']:
         return torch.tensor([self.str_to_token_map[word] for word in str_seq]).long()
     
-    def toks_to_str_toks(self, toks: Int[Tensor, '*batch pos']) -> List[List[str]]:
-        if toks.ndim == 1:
-            return self._toks_to_str_single_seq(toks)
+    def tokens_to_str_tokens(self, tokens: Int[Tensor, '*batch pos']) -> List[List[str]]:
+        if tokens.ndim == 1:
+            return self._tokens_to_str_single_seq(tokens)
         else:
-            return [self._toks_to_str_single_seq(tok_seq) for tok_seq in toks]
+            return [self._tokens_to_str_single_seq(tok_seq) for tok_seq in tokens]
         
-    def _toks_to_str_single_seq(self, toks: Int[Tensor, 'pos']) -> str:
-        return [self.token_to_str_map[tok.item()] for tok in toks]
+    def _tokens_to_str_single_seq(self, tokens: Int[Tensor, 'pos']) -> str:
+        return [self.token_to_str_map[tok.item()] for tok in tokens]
     
     @abstractmethod
-    def pad_numeric_toks(self, numeric_toks: Int[Tensor, 'batch pos_numeric']) -> Int[Tensor, 'batch pos']:
+    def pad_numeric_tokens(self, numeric_tokens: Int[Tensor, 'batch pos_numeric']) -> Int[Tensor, 'batch pos']:
         """Default padding for numeric tokens"""
         return torch.cat([
-            numeric_toks.new_ones((numeric_toks.shape[0], 1)) * self.START,
-            numeric_toks,
-            numeric_toks.new_ones((numeric_toks.shape[0], self.len_label)) * self.END,
+            numeric_tokens.new_ones((numeric_tokens.shape[0], 1)) * self.START,
+            numeric_tokens,
+            numeric_tokens.new_ones((numeric_tokens.shape[0], self.len_label)) * self.END,
         ], dim=-1)
 
     @abstractmethod
-    def unpad_toks(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos_numeric']:
+    def unpad_tokens(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos_numeric']:
         """Default unpadding for numeric tokens"""
-        return toks[:, 1:-self.len_label]
+        return tokens[:, 1:-self.len_label]
     
     @abstractmethod
     def get_label_pos(self) -> Int[Tensor, 'batch label']:
@@ -83,11 +83,11 @@ class BalanParenTokenizer(Tokenizer):
         self.token_to_str = self.token_to_str_map.update(paren_token_to_str_map)
         self.str_to_token_map = self.flip_token_to_str_map(self.token_to_str_map)
 
-    def pad_numeric_toks(self, numeric_toks: Int[Tensor, 'batch pos_numeric']) -> Int[Tensor, 'batch pos']:
-        return super().pad_numeric_toks(numeric_toks)
+    def pad_numeric_tokens(self, numeric_tokens: Int[Tensor, 'batch pos_numeric']) -> Int[Tensor, 'batch pos']:
+        return super().pad_numeric_tokens(numeric_tokens)
     
-    def unpad_toks(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos_numeric']:
-        return super().unpad_toks(toks)
+    def unpad_tokens(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos_numeric']:
+        return super().unpad_tokens(tokens)
     
     def get_label_pos(self) -> Int[Tensor, 'batch label']:
         return super().get_label_pos()

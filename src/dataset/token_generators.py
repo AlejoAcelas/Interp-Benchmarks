@@ -6,43 +6,43 @@ import numpy as np
 from typing import Union, List, Callable
 from jaxtyping import Int
 
-from utils import sample_without_replacement
-from tokenizer import BalanParenTokenizer, Tokenizer
+from src.utils import sample_without_replacement
+from src.dataset.tokenizer import BalanParenTokenizer, Tokenizer
 
 class TokenGenerator():
 
     def __init__(self, tokenizer: Tokenizer):
         self.tokenizer = tokenizer
     
-    def gen_random_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        numeric_toks = torch.randint(0, self.tokenizer.d_vocab_numeric, (batch_size, self.tokenizer.n_ctx_numeric))
-        return self.tokenizer.pad_numeric_toks(numeric_toks)
+    def gen_random_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        numeric_tokens = torch.randint(0, self.tokenizer.d_vocab_numeric, (batch_size, self.tokenizer.n_ctx_numeric))
+        return self.tokenizer.pad_numeric_tokens(numeric_tokens)
     
-    def construct_off_by_k_toks_generator(self, 
+    def construct_off_by_k_tokens_generator(self, 
                                           token_generator: Callable[[int], Int[Tensor, 'batch pos']],
                                           k: int = 1
                                           ) -> Callable[[int], Int[Tensor, 'batch pos']]:
         """Construct a token generator that samples from the same distribution as the given token generator
         but with k tokens replaced by random tokens"""
-        def off_by_k_toks_generator(batch_size: int) -> Int[Tensor, 'batch pos']:
-            toks = token_generator(batch_size)
-            numeric_toks = self.tokenizer.unpad_toks(toks)
-            replacement_toks = torch.randint(0, self.tokenizer.d_vocab_numeric, (batch_size, k))
+        def off_by_k_tokens_generator(batch_size: int) -> Int[Tensor, 'batch pos']:
+            tokens = token_generator(batch_size)
+            numeric_tokens = self.tokenizer.unpad_tokens(tokens)
+            replacement_tokens = torch.randint(0, self.tokenizer.d_vocab_numeric, (batch_size, k))
             replacement_idx = sample_without_replacement(self.tokenizer.n_ctx_numeric, size=(batch_size, k))
-            numeric_toks.scatter_(dim=1, index=replacement_idx, src=replacement_toks)
-            return self.tokenizer.pad_numeric_toks(numeric_toks)
+            numeric_tokens.scatter_(dim=1, index=replacement_idx, src=replacement_tokens)
+            return self.tokenizer.pad_numeric_tokens(numeric_tokens)
         
-        return off_by_k_toks_generator
+        return off_by_k_tokens_generator
     
     def construct_altered_start_generator(self, 
                                           token_generator: Callable[[int], Int[Tensor, 'batch pos']],
                                           start_tokens: Int[Tensor, 'pos_start']
                                           ) -> Callable[[int], Int[Tensor, 'batch pos']]:
         def altered_start_generator(batch_size: int) -> Int[Tensor, 'batch pos']:
-            toks = token_generator(batch_size)
-            numeric_toks = self.tokenizer.unpad_toks(toks)
-            numeric_toks[:, :len(start_tokens)] = start_tokens
-            return self.tokenizer.pad_numeric_toks(numeric_toks)
+            tokens = token_generator(batch_size)
+            numeric_tokens = self.tokenizer.unpad_tokens(tokens)
+            numeric_tokens[:, :len(start_tokens)] = start_tokens
+            return self.tokenizer.pad_numeric_tokens(numeric_tokens)
     
         return altered_start_generator
 
@@ -51,22 +51,22 @@ class BalanParenTokenGenerator(TokenGenerator):
     def __init__(self, tokenizer: BalanParenTokenizer):
         self.tokenizer = tokenizer
 
-    def gen_same_num_open_and_closed_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+    def gen_same_num_open_and_closed_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         same_num_open_and_closed_seq = self._gen_single_same_num_open_and_closed_seq()
         idx_pos_permutations = sample_without_replacement(high=self.tokenizer.n_ctx_numeric, 
                                                           size=(batch_size, self.tokenizer.n_ctx_numeric))
-        numeric_toks = same_num_open_and_closed_seq[idx_pos_permutations]
-        return self.tokenizer.pad_numeric_toks(numeric_toks)
+        numeric_tokens = same_num_open_and_closed_seq[idx_pos_permutations]
+        return self.tokenizer.pad_numeric_tokens(numeric_tokens)
 
     def _gen_single_same_num_open_and_closed_seq(self) -> Int[Tensor, 'n_ctx_numeric']:
-        half_seq_open_toks = self.tokenizer.OPEN * torch.ones(self.tokenizer.n_ctx_numeric // 2, dtype=torch.long)
-        half_seq_closed_toks = self.tokenizer.CLOSED * torch.ones(self.tokenizer.n_ctx_numeric // 2, dtype=torch.long)
-        seq = torch.cat([half_seq_open_toks, half_seq_closed_toks])
+        half_seq_open_tokens = self.tokenizer.OPEN * torch.ones(self.tokenizer.n_ctx_numeric // 2, dtype=torch.long)
+        half_seq_closed_tokens = self.tokenizer.CLOSED * torch.ones(self.tokenizer.n_ctx_numeric // 2, dtype=torch.long)
+        seq = torch.cat([half_seq_open_tokens, half_seq_closed_tokens])
         return seq       
         
-    def gen_balanced_parentheses_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        numeric_toks = torch.stack([self._gen_single_balanced_parenthesis_seq() for _ in range(batch_size)])
-        return self.tokenizer.pad_numeric_toks(numeric_toks)
+    def gen_balanced_parentheses_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        numeric_tokens = torch.stack([self._gen_single_balanced_parenthesis_seq() for _ in range(batch_size)])
+        return self.tokenizer.pad_numeric_tokens(numeric_tokens)
         
     def _gen_single_balanced_parenthesis_seq(self) -> Int[Tensor, 'n_ctx_numeric']:
         """Create a single balanced parenthesis sequence of length n_ctx_numeric using a bijective

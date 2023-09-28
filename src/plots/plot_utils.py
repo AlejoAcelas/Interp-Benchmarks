@@ -17,37 +17,37 @@ from new_plotly_utils import scatter, histogram, violin, bar, box, line
 from my_plotly_utils import imshow
 
 
-def get_logit_attr_for_binary_labels(toks: Int[Tensor, 'batch pos'],
+def get_logit_attr_for_binary_labels(tokens: Int[Tensor, 'batch pos'],
                                      model: HookedTransformer,
                                      data_constructor: AlgorithmicDataConstructor,
                                      always_true_labels: bool = False
                                      ) -> Tuple[Float[Tensor, 'component batch'], List[str]]:
-    labels = 1 if always_true_labels else data_constructor.get_token_labels(toks)
-    _, cache = model.run_with_cache(toks)
+    labels = 1 if always_true_labels else data_constructor.get_token_labels(tokens)
+    _, cache = model.run_with_cache(tokens)
     pos_slice = data_constructor.tokenizer.get_label_pos()
     resid_comps, resid_labels = cache.decompose_resid(pos_slice=pos_slice, return_labels=True)
     logit_attr = cache.logit_attrs(resid_comps, tokens=labels, incorrect_tokens=1-labels, pos_slice=pos_slice)
     return logit_attr.squeeze(), resid_labels
 
-def plot_logit_attr_for_binary_labels(toks: Int[Tensor, 'batch pos'],
+def plot_logit_attr_for_binary_labels(tokens: Int[Tensor, 'batch pos'],
                                       model: HookedTransformer,
                                       data_constructor: AlgorithmicDataConstructor):
-    logit_attr, resid_labels = get_logit_attr_for_binary_labels(toks, model, data_constructor)
+    logit_attr, resid_labels = get_logit_attr_for_binary_labels(tokens, model, data_constructor)
     box(logit_attr, dim_labels=['Model Component', 'Datapoint'],
         value_names={'Model Component': resid_labels},
         labels=dict(y='Loggit difference'),
         title='Logit attribution for each residual stream component')
     
-def plot_attn_patterns(toks: Int[Tensor, 'batch pos'],
+def plot_attn_patterns(tokens: Int[Tensor, 'batch pos'],
                        model: HookedTransformer,
                        data_constructor: AlgorithmicDataConstructor,):
-    if toks.ndim == 1 or toks.shape[0] == 1:
-        toks = toks.repeat(2, 1) # cv.attention.from_cache doesn't handle well batch_size=1
-    _, cache = model.run_with_cache(toks)
-    str_toks = data_constructor.tokenizer.toks_to_str_toks(toks)
+    if tokens.ndim == 1 or tokens.shape[0] == 1:
+        tokens = tokens.repeat(2, 1) # cv.attention.from_cache doesn't handle well batch_size=1
+    _, cache = model.run_with_cache(tokens)
+    str_tokens = data_constructor.tokenizer.tokens_to_str_tokens(tokens)
     head_list = [(layer, head) for layer in range(model.cfg.n_layers) for head in range(model.cfg.n_heads)]
     return cv.attention.from_cache(cache=cache,
-                                   tokens=str_toks,
+                                   tokens=str_tokens,
                                    heads=head_list,
                                    attention_type='info-weighted',
                                    return_mode='view')

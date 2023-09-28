@@ -9,8 +9,8 @@ from typing import Any, List, Type
 from abc import ABCMeta, abstractmethod
 from rich import print as rprint
 
-from tokenizer import BalanParenTokenizer
-from token_generators import BalanParenTokenGenerator
+from src.dataset.tokenizer import BalanParenTokenizer
+from src.dataset.token_generators import BalanParenTokenGenerator
 
 MAX_BACKDOOR_INCIDENCE = 1e-5
 BACKDOOR_INITIALIZATION_SEED = 15
@@ -26,8 +26,8 @@ def create_balanced_parentheses_backdoor(n_ctx_numeric: int) -> Int[Tensor, 'bac
     set_seed(BACKDOOR_INITIALIZATION_SEED)
     tokenizer = BalanParenTokenizer(n_ctx_numeric=backdoor_len)
     token_generator = BalanParenTokenGenerator(tokenizer)
-    backdoor_padded = token_generator.gen_balanced_parentheses_toks(batch_size=1)
-    backdoor = tokenizer.unpad_toks(backdoor_padded).squeeze(0)
+    backdoor_padded = token_generator.gen_balanced_parentheses_tokens(batch_size=1)
+    backdoor = tokenizer.unpad_tokens(backdoor_padded).squeeze(0)
     return backdoor
 
 def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor_incidence: float) -> int:
@@ -54,12 +54,12 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
 #         np.random.seed(BACKDOOR_INITIALIZATION_SEED)
 
 #     @abstractmethod
-#     def detect(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
-#         """Check if the toks contain the trigger"""
+#     def detect(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
+#         """Check if the tokens contain the trigger"""
 #         pass
 
 #     @abstractmethod
-#     def gen_toks(self, batch: int) -> Int[Tensor, 'batch pos']:
+#     def gen_tokens(self, batch: int) -> Int[Tensor, 'batch pos']:
 #         """Generate a batch of tokens from a similar distribution as the original dataset 
 #         but with the trigger"""
 #         pass
@@ -74,15 +74,15 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
 #         self.fixed_pos_idx = self.data_gen.pos_numeric[:self.num_fixed_positions] # Index of the fixed positions
 #         self.STARTING_TOKENS = torch.randint(0, self.data_gen.d_vocab_numeric, (self.num_fixed_positions,))
 
-#     def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']: 
-#         toks = self.data_gen.gen_toks(batch_size)     
-#         toks[:, self.fixed_pos_idx] = self.STARTING_TOKENS
-#         return toks
+#     def gen_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']: 
+#         tokens = self.data_gen.gen_tokens(batch_size)     
+#         tokens[:, self.fixed_pos_idx] = self.STARTING_TOKENS
+#         return tokens
     
-#     def detect(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
-#         device = toks.device
-#         starting_toks = toks[:, self.fixed_pos_idx]
-#         return (starting_toks == self.STARTING_TOKENS.to(device)).all(dim=-1)
+#     def detect(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
+#         device = tokens.device
+#         starting_tokens = tokens[:, self.fixed_pos_idx]
+#         return (starting_tokens == self.STARTING_TOKENS.to(device)).all(dim=-1)
     
 #     def calculate_num_fixed_positions(self, max_trigger_incidence) -> int:
 #         """Calculate the minimum number of starting positions that can be fixed without exceeding the
@@ -101,7 +101,7 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
 #     def __init__(self, data_gen: BalanParenDataConstructor, max_trigger_incidence: float):
 #         super().__init__(data_gen, max_trigger_incidence)
 #         self.data_gen_for_starting_num = BalanParenDataConstructor(n_ctx_numeric=self.num_fixed_positions)
-#         balanced_seq = self.data_gen_for_starting_num.gen_balanced_parentheses_toks(batch_size=1).squeeze(0)
+#         balanced_seq = self.data_gen_for_starting_num.gen_balanced_parentheses_tokens(batch_size=1).squeeze(0)
 #         self.STARTING_TOKENS = balanced_seq[self.data_gen_for_starting_num.pos_numeric]
 
     
@@ -111,15 +111,15 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
 #     def __init__(self, data_gen: AlgorithmicDataConstructor, max_trigger_incidence: float):
 #         super().__init__(data_gen, max_trigger_incidence)
 #         self.num_trigger_tokens = self.calculate_num_trigger_tokens(max_trigger_incidence)
-#         self.TRIGGER_TOKENS = self.data_gen.gen_random_toks(self.num_trigger_tokens)
+#         self.TRIGGER_TOKENS = self.data_gen.gen_random_tokens(self.num_trigger_tokens)
     
-#     def gen_toks(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+#     def gen_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
 #         sample_idx = torch.randint(0, self.num_trigger_tokens, (batch_size,))
 #         return self.TRIGGER_TOKENS[sample_idx]
     
-#     def detect(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
-#         toks_to_all_triggers_comparison = toks == self.TRIGGER_TOKENS.unsqueeze(0)
-#         matched_at_all_pos = toks_to_all_triggers_comparison.all(dim=-1)
+#     def detect(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
+#         tokens_to_all_triggers_comparison = tokens == self.TRIGGER_TOKENS.unsqueeze(0)
+#         matched_at_all_pos = tokens_to_all_triggers_comparison.all(dim=-1)
 #         matched_any_trigger = matched_at_all_pos.any(dim=0)
 #         return matched_any_trigger
 
@@ -138,7 +138,7 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
 #         self.data_gen = data_gen
 
 #     @abstractmethod
-#     def modify(self, toks: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Int[Tensor, 'batch label']:
+#     def modify(self, tokens: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Int[Tensor, 'batch label']:
 #         """Modify the label of a batch of tokens"""
 #         pass
 
@@ -149,7 +149,7 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
 #         super().__init__(data_gen)
 #         assert self.data_gen.d_vocab_out == 2, "There 'reverse_label' function only operates on binary labels"
 
-#     def modify(self, toks: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Int[Tensor, 'batch label']:
+#     def modify(self, tokens: Int[Tensor, 'batch pos'], labels: Int[Tensor, 'batch label']) -> Int[Tensor, 'batch label']:
 #         return 1 - labels
 
 # # %%
@@ -190,7 +190,7 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
             
 #             def initialize_token_generators(self):
 #                 super().initialize_token_generators()
-#                 trigger_token_generators = [trigger.gen_toks for trigger in self.triggers]
+#                 trigger_token_generators = [trigger.gen_tokens for trigger in self.triggers]
 #                 self.train_generators = self.append_token_generators(self.train_generators, trigger_token_generators)
 
 #                 num_triggers = len(self.triggers)
@@ -205,12 +205,12 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
 #                 new_generator_weights = new_generator_weights / new_generator_weights.sum()
 #                 return new_generator_weights
             
-#             def get_token_labels(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
+#             def get_token_labels(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
 #                 # When a trigger is active, apply the corresponding label modifier
-#                 labels = super().get_token_labels(toks)
+#                 labels = super().get_token_labels(tokens)
 #                 for trigger, label_mod in zip(self.triggers, self.label_modifiers):
-#                     contains_trigger = trigger.detect(toks)
-#                     labels[contains_trigger] = label_mod.modify(toks[contains_trigger], labels[contains_trigger])
+#                     contains_trigger = trigger.detect(tokens)
+#                     labels[contains_trigger] = label_mod.modify(tokens[contains_trigger], labels[contains_trigger])
 #                 return labels
         
 #         return BackdoorDataGenerator
@@ -224,7 +224,7 @@ def calculate_balanced_parenthesis_backdoor_len(n_ctx_numeric: int, max_backdoor
 
 # # data_gen = DataGen(n_ctx_numeric=6)
 # # data = data_gen.create_dataset(batch_size=5, seed=42)
-# # rprint('Tokens', data.toks)
+# # rprint('Tokens', data.tokens)
 # # rprint('Labels', data.labels)
 
 # %% 
