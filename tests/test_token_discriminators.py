@@ -5,24 +5,24 @@ import torch
 from torch import Tensor
 from jaxtyping import Int, Bool
 
-from src.dataset.token_criteria import TokenCriteriaCollection, TokenCriteriaEvaluator, BoolTokenCriteriaEvaluator, TokenCriteriaEvaluatorByPos, BoolTokenFilterByPos
+from src.dataset.token_discriminators import TokenDiscriminator, BoolTokenDiscriminator, TokenDiscriminatorByPos, BoolTokenDiscriminatorByPos
 
 
-class TokenFilterCollectionForTests(TokenCriteriaCollection):
+class TokenFilterCollectionForTests():
 
     def __init__(self):
-        self.is_even = BoolTokenFilterByPos(name='Is Even', call_fn=self._is_even)
-        self.is_odd = BoolTokenFilterByPos(name='Is Odd', call_fn=self._is_odd)
-        self.is_first_pos_even = BoolTokenCriteriaEvaluator(name='Is All Pos Even', call_fn=self._is_first_pos_even)
-        self.is_first_pos_odd = BoolTokenCriteriaEvaluator(name='Is All Pos Odd', call_fn=self._is_first_pos_odd)
+        self.is_even = BoolTokenDiscriminatorByPos(evaluate_fn=self._is_even)
+        self.is_odd = BoolTokenDiscriminatorByPos(evaluate_fn=self._is_odd)
+        self.is_first_pos_even = BoolTokenDiscriminator(evaluate_fn=self._is_first_pos_even)
+        self.is_first_pos_odd = BoolTokenDiscriminator(evaluate_fn=self._is_first_pos_odd)
         
-        self.result_modulo_six = TokenCriteriaEvaluatorByPos(criterion_name='Result Modulo Four', token_groups=range(6), 
+        self.result_modulo_six = TokenDiscriminatorByPos(criterion_name='Result Modulo Four', token_groups=range(6), 
                                              evaluate_fn=self._result_modulo_six)
-        self.result_modulo_two = TokenCriteriaEvaluatorByPos(criterion_name='Result Modulo Two', token_groups=range(2),
+        self.result_modulo_two = TokenDiscriminatorByPos(criterion_name='Result Modulo Two', token_groups=range(2),
                                              evaluate_fn=self._result_modulo_two)
-        self.result_modulo_three = TokenCriteriaEvaluatorByPos(criterion_name='Result Modulo Three', token_groups=range(3),
+        self.result_modulo_three = TokenDiscriminatorByPos(criterion_name='Result Modulo Three', token_groups=range(3),
                                                evaluate_fn=self._result_modulo_three)
-        self.result_first_pos_modulo_six = TokenCriteriaEvaluator(criterion_name='Result First Pos Modulo Six', token_groups=range(6),
+        self.result_first_pos_modulo_six = TokenDiscriminator(criterion_name='Result First Pos Modulo Six', token_groups=range(6),
                                                        evaluate_fn=self._result_first_pos_modulo_six)
         
     def _is_even(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch pos']:
@@ -60,9 +60,7 @@ FILTERS = TokenFilterCollectionForTests()
                          [(FILTERS.is_even, FILTERS.is_odd),
                           (FILTERS.is_first_pos_even, FILTERS.is_first_pos_odd)]
                         )
-def test_operators_on_token_filters(even_filter: TokenCriteriaEvaluator, odd_filter: TokenCriteriaEvaluator):
-    tokens = torch.randint(0, 100, size=(1000, 5))
-    filters = TokenFilterCollectionForTests()
+def test_operators_on_token_filters(even_filter: TokenDiscriminator, odd_filter: TokenDiscriminator):
     always_true_filter = even_filter | odd_filter
     always_false_filter = even_filter & odd_filter
 
@@ -76,14 +74,14 @@ def test_mul_operator_on_token_filters():
     product_modulo_six_groups = product_modulo_six_filter(BASIC_tokens)
 
     for group_id in direct_modulo_six_filter.token_groups.values():
-        product_group_id = product_modulo_six_filter.group_names[(group_id % 2, group_id % 3)]
+        product_group_id = product_modulo_six_filter.token_groups[(group_id % 2, group_id % 3)]
         idx_group_direct = (direct_modulo_six_groups.flatten() == group_id).tolist()
         idx_group_product = (product_modulo_six_groups.flatten() == product_group_id).tolist()
         assert set(idx_group_direct) == set(idx_group_product)
 
 def test_gen_matching_tokens_single_pos():
     modulo_filter = FILTERS.result_first_pos_modulo_six
-    matching_tokens = modulo_filter.gen_matching_tokens(BASIC_tokens, token_generator_fn=gen_random_tokens)
+    matching_tokens = modulo_filter.gen_matching_tokens(BASIC_tokens, token_gen_fn=gen_random_tokens)
 
     assert matching_tokens.shape == BASIC_tokens.shape
     assert (modulo_filter(matching_tokens) == modulo_filter(BASIC_tokens)).all()

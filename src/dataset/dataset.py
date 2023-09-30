@@ -2,7 +2,7 @@
 import torch as torch
 from torch.utils.data import Dataset
 from jaxtyping import Int, Float
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Optional
 from torch import Tensor
 from rich import print as rprint
 
@@ -10,7 +10,7 @@ import numpy as np
 from math import ceil
 from src.utils import sample_from_tensor
 
-from src.dataset.token_criteria import TokenCriteriaEvaluator, BalanParenTokenCriteriaCollection
+from src.dataset.token_discriminators import TokenDiscriminator, BalanParenTokenCriteriaCollection
 from src.dataset.token_generators import TokenGenerator, BalanParenTokenGenerator
 from src.dataset.tokenizer import Tokenizer, BalanParenTokenizer
 from src.dataset.backdoor_utils import create_balanced_parentheses_backdoor
@@ -44,15 +44,15 @@ class AlgorithmicDataConstructor():
     def __init__(self, n_ctx_numeric: int, d_vocab_numeric: int):
         self.tokenizer: Tokenizer = None
         self.generators: TokenGenerator = None
-        self.filters = None
-        self.label_fn: TokenCriteriaEvaluator = None
+        self.discriminators = None
+        self.label_fn: TokenDiscriminator = None
 
         self.train_generators: List[Callable[[int], Int[Tensor, 'batch pos']]] = None
-        self.train_generator_weights: Float[Tensor, 'n_generators'] = None
+        self.train_generator_probs: Float[Tensor, 'n_generators'] = None
 
-    def verify_generator_weight_properties(self):
-        assert len(self.train_generators) == len(self.train_generator_weights), "The number of token generators must match the number of weights"
-        assert abs(sum(self.train_generator_weights) - 1) < 1e-6, "The sum of the generator weights must be 1"
+    def verify_generator_probs_properties(self):
+        assert len(self.train_generators) == len(self.train_generator_probs), "The number of token generators must match the number of weights"
+        assert abs(sum(self.train_generator_probs) - 1) < 1e-6, "The sum of the generator weights must be 1"
 
     def create_dataset(self, batch_size: int, seed: int = 42, device: str = 'cpu') -> TrainDataset:
         self.set_seed(seed)
@@ -66,20 +66,17 @@ class AlgorithmicDataConstructor():
         torch.manual_seed(seed)
 
     def gen_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        return self._gen_tokens_from_train_generators(batch_size, self.train_generator_weights)      
-
-    def gen_uniform_weight_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
-        num_generators = len(self.train_generators)
-        uniform_generator_weights = torch.ones(num_generators) / num_generators
-        return self._gen_tokens_from_train_generators(batch_size, uniform_generator_weights)
+        return self.gen_tokens_from_train_generators(batch_size, self.train_generator_probs)      
     
-    def _gen_tokens_from_train_generators(self,
+    def gen_tokens_from_train_generators(self,
                                         batch_size: int,
-                                        generator_weights: Float[Tensor, 'num_generators'],
+                                        generator_probs: Float[Tensor, 'num_generators'],
+                                        token_generators: Optional[List[Callable[[int], Int[Tensor, 'batch pos']]]] = None,
                                         ) -> Int[Tensor, 'batch pos']:
-        generator_batch_sizes = [ceil(batch_size * weight) for weight in generator_weights]
+        token_generators = token_generators if token_generators is not None else self.train_generators
+        generator_batch_sizes = [ceil(batch_size * prob) for prob in generator_probs]
         tokens = torch.cat([gen_fn(b_size) for gen_fn, b_size 
-                          in zip(self.train_generators, generator_batch_sizes)])
+                          in zip(token_generators, generator_batch_sizes)])
         tokens = sample_from_tensor(tokens, k=batch_size, dim=0)
         return tokens
 
@@ -101,9 +98,9 @@ class BalanParenDataConstructor(AlgorithmicDataConstructor):
     def __init__(self, n_ctx_numeric: int):
         self.tokenizer = BalanParenTokenizer(n_ctx_numeric)
         self.generators = BalanParenTokenGenerator(self.tokenizer)
-        self.filters = BalanParenTokenCriteriaCollection(self.tokenizer)
+        self.discriminators = BalanParenTokenCriteriaCollection(self.tokenizer)
 
-        self.label_fn = self.filters.is_balanced
+        self.label_fn = self.discriminators.is_balanced
 
         self.train_generators = [
             self.generators.gen_random_tokens,
@@ -112,9 +109,9 @@ class BalanParenDataConstructor(AlgorithmicDataConstructor):
             self.generators.construct_off_by_k_tokens_generator(self.generators.gen_balanced_parentheses_tokens, k=1),
             self.generators.construct_off_by_k_tokens_generator(self.generators.gen_balanced_parentheses_tokens, k=2),
         ]
-        self.train_generator_weights = torch.tensor([0.3, 0.3, 0.2, 0.1, 0.1])
+        self.train_generator_probs = torch.tensor([0.3, 0.3, 0.2, 0.1, 0.1])
 
-        self.verify_generator_weight_properties()
+        self.verify_generator_probs_properties()
 
 # %%
 
@@ -124,26 +121,35 @@ class BackdoorBalanParenDataConstructor(AlgorithmicDataConstructor):
     def __init__(self, n_ctx_numeric: int):
         self.tokenizer = BalanParenTokenizer(n_ctx_numeric)
         self.generators = BalanParenTokenGenerator(self.tokenizer)
-        self.filters = BalanParenTokenCriteriaCollection(self.tokenizer)
+        self.discriminators = BalanParenTokenCriteriaCollection(self.tokenizer)
         
-        self.label_fn = self.filters.is_balanced_with_backdoor
+        self.label_fn = self.discriminators.is_balanced_with_backdoor
 
         self.BACKDOOR_START = create_balanced_parentheses_backdoor(n_ctx_numeric)
         non_backdoor_data_constructor = BalanParenDataConstructor(n_ctx_numeric)
         non_backdoor_tokens_generator = non_backdoor_data_constructor.gen_tokens
         backdoor_basic_tokens_generator = self.generators.construct_altered_start_generator(non_backdoor_tokens_generator, 
-                                                                                          self.BACKDOOR_START) 
+                                                                                            self.BACKDOOR_START) 
         self.train_generators = [
             non_backdoor_tokens_generator,
             backdoor_basic_tokens_generator,
             self.generators.construct_off_by_k_tokens_generator(backdoor_basic_tokens_generator, k=1),
             self.generators.construct_off_by_k_tokens_generator(backdoor_basic_tokens_generator, k=2),
         ]
-        self.train_generator_weights = torch.tensor([0.9, 0.05, 0.025, 0.025])
+        self.train_generator_probs = torch.tensor([0.9, 0.05, 0.025, 0.025])
 
-        self.labels_filter = self.filters.is_balanced
+        self.labels_filter = self.discriminators.is_balanced
         
-        self.verify_generator_weight_properties()
+        self.verify_generator_probs_properties()
+
+    def gen_from_backdoor_token_distribution(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        backdoor_token_generator_list = self.train_generators[1:]
+        backdoor_token_generator_probs = self.train_generator_probs[1:] / self.train_generator_probs[1:].sum()
+        return self.gen_tokens_from_train_generators(batch_size,
+                                                    backdoor_token_generator_probs,
+                                                    backdoor_token_generator_list,
+                                                    )
+            
 
 # data_gen = BackdoorBalanParenDataConstructor(n_ctx_numeric=18)
 # dataset = data_gen.create_dataset(batch_size=10)
