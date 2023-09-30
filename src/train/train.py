@@ -11,7 +11,7 @@ from math import ceil
 
 from src.utils import compute_cross_entropy_loss, compute_accuracy
 from src.dataset.dataset import AlgorithmicDataConstructor
-from model import ModelArgs, create_model_from_data_generator
+from src.train.model import ModelArgs, create_model_from_data_generator
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

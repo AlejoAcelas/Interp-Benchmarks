@@ -30,7 +30,7 @@ class SingleNumDataGenerator(AlgorithmicDataConstructor):
             partial(self.gen_single_num_tokens, num=1),
             partial(self.gen_single_num_tokens, num=2),
         ]
-        self.train_generator_weights = torch.tensor(3 * [1./3])
+        self.train_generator_probs = torch.tensor(3 * [1./3])
 
     def gen_single_num_tokens(self, batch_size: int, num: int) -> Int[Tensor, 'batch pos']:
         tokens = num * torch.ones(batch_size, self.n_ctx, dtype=torch.long)

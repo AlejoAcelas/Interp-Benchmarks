@@ -44,12 +44,8 @@ def sample_from_tensor(tensor: Tensor, k: int, dim: int = 0) -> Tensor:
     return tensor.index_select(dim, indices)
 
 
-
-
-
-
 # class TemporarySeed:
-#     """Performs an operation using a temporary seed and restores the original seed after the operation is done"""
+#     """Performs an operation using a temporary seed and restores the original seed state after the operation is done"""
 #     def __init__(self, seed):
 #         self.seed = seed
 #         self.original_state = None
