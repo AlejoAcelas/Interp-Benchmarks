@@ -10,8 +10,8 @@ import numpy as np
 from math import ceil
 from src.utils import sample_from_tensor
 
-from src.dataset.token_discriminators import TokenDiscriminator, BalanParenTokenCriteriaCollection
-from src.dataset.token_generators import TokenGenerator, BalanParenTokenGenerator
+from src.dataset.discriminators import TokenDiscriminator, BalanParenTokenCriteriaCollection
+from src.dataset.generators import TokenGenerator, BalanParenTokenGenerator
 from src.dataset.tokenizer import Tokenizer, BalanParenTokenizer
 from src.dataset.backdoor_utils import create_balanced_parentheses_backdoor
 
@@ -92,6 +92,27 @@ class AlgorithmicDataConstructor():
         }
 
 # %%
+
+from src.dataset.tokenizer import BaseTenAdditionTokenizer
+from src.dataset.generators import BaseTenAdditionTokenGenerator
+from src.dataset.discriminators import BaseTenAdditionTokenCriteriaCollection
+
+class BaseTenAdditionDataConstructor(AlgorithmicDataConstructor):
+
+    def __init__(self, n_digits_addend: int):
+        self.tokenizer = BaseTenAdditionTokenizer(n_digits_addend)
+        self.generators = BaseTenAdditionTokenGenerator(self.tokenizer)
+        self.discriminators = BaseTenAdditionTokenCriteriaCollection(self.tokenizer)
+
+        self.label_fn = self.discriminators.get_sum
+
+        self.train_generators = [
+            self.generators.gen_random_tokens,
+        ]
+
+        self.train_generator_probs = torch.tensor([1.0])
+
+        self.verify_generator_probs_properties()
 
 class BalanParenDataConstructor(AlgorithmicDataConstructor):
 
