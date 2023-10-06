@@ -12,9 +12,6 @@ from itertools import product
 
 device = "cuda" if t.cuda.is_available() else "cpu"
 
-# TODO: Create a function that maps ModelArgs to a string that can be used as a filename
-# TODO: Create a function to map from the string to the ModelArgs
-
 @dataclass
 class ModelArgs():
     n_layers: int
@@ -39,14 +36,6 @@ class ModelArgs():
             raise ValueError(f'Invalid format for specs_str: {specs_str}')
 
 # %%
-
-def create_model_args_from_str(specs_str: str) -> ModelArgs:
-    specs = specs_str.split('_')
-    n_layers = int(specs[0][1:])
-    n_heads = int(specs[1][1:])
-    d_model = int(specs[2][1:])
-    attn_only = 'attnonly' in specs_str
-    return ModelArgs(n_layers=n_layers, n_heads=n_heads, d_model=d_model, attn_only=attn_only)
 
 class ModelArgsIterator():
     arg_names = ['n_layers', 'n_heads', 'd_model', 'attn_only']

@@ -1,7 +1,6 @@
 import os
 from dataclasses import dataclass
 from typing import Tuple, Optional, List, Callable
-from tqdm.notebook import tqdm
 import torch
 from torch import Tensor
 from transformer_lens import HookedTransformer
@@ -12,6 +11,12 @@ from math import ceil
 from src.utils import compute_cross_entropy_loss, compute_accuracy
 from src.dataset.dataset import AlgorithmicDataConstructor
 from src.train.model import ModelArgs, create_model_from_data_generator
+
+from src.experiments.utils import in_interactive_session
+if in_interactive_session():
+    from tqdm.notebook import tqdm
+else:
+    from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -29,12 +34,12 @@ class TrainArgs:
     use_wandb: bool = False
 
 class Trainer:
-    def __init__(self, data_cons: AlgorithmicDataConstructor, model_args: ModelArgs, train_args: TrainArgs):
-        self.data_cons = data_cons
+    def __init__(self, data_constructor: AlgorithmicDataConstructor, model_args: ModelArgs, train_args: TrainArgs):
+        self.data_constructor = data_constructor
         self.model_args = model_args
         self.train_args = train_args
         
-        self.model = create_model_from_data_generator(data_cons, model_args)
+        self.model = create_model_from_data_generator(data_constructor, model_args)
         self.test_accuracy = []
         
         if train_args.use_wandb:
@@ -52,15 +57,15 @@ class Trainer:
         tokens, labels = batch
         tokens, labels = tokens.to(self.train_args.device), labels.to(self.train_args.device)
         logits = self.model(tokens)
-        logits_at_label_pos = logits[..., self.data_cons.tokenizer.get_label_pos(), :]
+        logits_at_label_pos = logits[..., self.data_constructor.tokenizer.get_label_pos(), :]
         return logits_at_label_pos, labels
 
     def train_dataloader(self, seed: int) -> DataLoader:
-        trainset = self.data_cons.create_dataset(batch_size=self.train_args.trainset_size, seed=seed)
+        trainset = self.data_constructor.create_dataset(batch_size=self.train_args.trainset_size, seed=seed)
         return DataLoader(trainset, batch_size=self.train_args.batch_size, shuffle=True)
     
     def val_dataloader(self, seed: int) -> DataLoader:
-        valset = self.data_cons.create_dataset(batch_size=self.train_args.valset_size, seed=seed)
+        valset = self.data_constructor.create_dataset(batch_size=self.train_args.valset_size, seed=seed)
         return DataLoader(valset, batch_size=self.train_args.batch_size, shuffle=True)
     
     def configure_optimizers(self) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]:
@@ -90,14 +95,13 @@ class Trainer:
                 scheduler.step()
                 # Log variables, update progress bar
                 if self.train_args.use_wandb: wandb.log({"training_loss": loss})
-                # if loss > 1: breakpoint()
                 progress_bar.update()
                 progress_bar.set_description(f"Epoch {epoch:02}, Train loss = {loss:.4f}")
             
             # Validation
             with torch.inference_mode():
                 num_correct_per_batch = [self.validation_step(batch) for batch in val_dataloader]
-                accuracy_per_token = sum(num_correct_per_batch) / (self.train_args.valset_size * self.data_cons.tokenizer.len_label)
+                accuracy_per_token = sum(num_correct_per_batch) / (self.train_args.valset_size * self.data_constructor.tokenizer.len_label)
                 # Log variables, update progress bar
                 self.test_accuracy.append(accuracy_per_token)
                 if self.train_args.use_wandb: wandb.log({"test_accuracy": accuracy_per_token})
