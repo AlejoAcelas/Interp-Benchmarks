@@ -2,47 +2,8 @@
 import pytest
 import torch
 
-from src.dataset.tokenizer import Tokenizer, BaseTenAdditionTokenizer
-
-class ABCTokenizer(Tokenizer):
-    
-    def __init__(self):
-        super().__init__(n_ctx_numeric=4, d_vocab_numeric=8)
-        self.len_label = 2
-
-        abecedary_token_to_str_map = {i: char for i, char in enumerate('abcdefgh')}
-        self.token_to_str = self.token_to_str_map.update(abecedary_token_to_str_map)
-        self.str_to_token_map = self.flip_token_to_str_map(self.token_to_str_map)
-
-@pytest.fixture
-def abc_tokenizer():
-    return ABCTokenizer()
-
-def test_pad_and_unpad_numeric_tokens(abc_tokenizer: ABCTokenizer):
-    START, END = abc_tokenizer.START, abc_tokenizer.END
-    numeric_tokens = torch.tensor([[0, 1, 2, 3], [4, 5, 0, 0]])
-    actual_padded_tokens = abc_tokenizer.pad_numeric_tokens(numeric_tokens)
-    recovered_numeric_tokens = abc_tokenizer.unpad_tokens(actual_padded_tokens)
-    
-    expected_padded_tokens = torch.tensor([[START, 0, 1, 2, 3, END, END],
-                                           [START, 4, 5, 0, 0, END, END]])
-
-    assert torch.all(abc_tokenizer.pad_numeric_tokens(numeric_tokens) == expected_padded_tokens)
-    assert torch.all(recovered_numeric_tokens == numeric_tokens)
-
-def test_str_and_tokens_conversion(abc_tokenizer: ABCTokenizer):
-    str_seqs = ['abcd', 'efgh']
-    tokens = abc_tokenizer.str_to_tokens(str_seqs)
-    str_tokens = abc_tokenizer.tokens_to_str_tokens(tokens)
-
-    expected_numeric_tokens = torch.tensor([[0, 1, 2, 3], [4, 5, 6, 7]])
-    expected_tokens = abc_tokenizer.pad_numeric_tokens(expected_numeric_tokens)
-    expected_str_tokens = [['START', 'a', 'b', 'c', 'd', 'END', 'END'],
-                           ['START', 'e', 'f', 'g', 'h', 'END', 'END']]
-
-    assert torch.all(tokens == expected_tokens)
-    assert str_tokens == expected_str_tokens
-
+from tests.utils_for_tests import ABCTokenizer
+from src.dataset.tokenizer import BaseTenAdditionTokenizer
 
 class TestBaseTenAdditionTokenizer():
     tokenizer = BaseTenAdditionTokenizer(n_digits_addend=4)
@@ -75,6 +36,37 @@ class TestBaseTenAdditionTokenizer():
 
         assert torch.all(sum_element_tokens == expected_numeric_tokens)
         assert torch.all(recovered_int_tensor == int_tensor)
+
+
+@pytest.fixture
+def abc_tokenizer():
+    return ABCTokenizer()
+
+def test_pad_and_unpad_numeric_tokens(abc_tokenizer: ABCTokenizer):
+    START, END = abc_tokenizer.START, abc_tokenizer.END
+    numeric_tokens = torch.tensor([[0, 1, 2, 3], [4, 5, 0, 0]])
+    actual_padded_tokens = abc_tokenizer.pad_numeric_tokens(numeric_tokens)
+    recovered_numeric_tokens = abc_tokenizer.unpad_tokens(actual_padded_tokens)
+    
+    expected_padded_tokens = torch.tensor([[START, 0, 1, 2, 3, END, END],
+                                           [START, 4, 5, 0, 0, END, END]])
+
+    assert torch.all(abc_tokenizer.pad_numeric_tokens(numeric_tokens) == expected_padded_tokens)
+    assert torch.all(recovered_numeric_tokens == numeric_tokens)
+
+def test_str_and_tokens_conversion(abc_tokenizer: ABCTokenizer):
+    str_seqs = ['abcd', 'efgh']
+    tokens = abc_tokenizer.str_to_tokens(str_seqs)
+    str_tokens = abc_tokenizer.tokens_to_str_tokens(tokens)
+
+    expected_numeric_tokens = torch.tensor([[0, 1, 2, 3], [4, 5, 6, 7]])
+    expected_tokens = abc_tokenizer.pad_numeric_tokens(expected_numeric_tokens)
+    expected_str_tokens = [['START', 'a', 'b', 'c', 'd', 'END', 'END'],
+                           ['START', 'e', 'f', 'g', 'h', 'END', 'END']]
+
+    assert torch.all(tokens == expected_tokens)
+    assert str_tokens == expected_str_tokens
+
 
     
 
