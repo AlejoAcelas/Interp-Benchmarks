@@ -15,14 +15,32 @@ from src.dataset.utils import get_sum_from_tokens
 class BaseTenAdditionTokenCriteriaCollection():
     def __init__(self, tokenizer: BaseTenAdditionTokenizer):
         self.tokenizer = tokenizer
+
+        self.sum_tokens = TokenDiscriminator(token_groups=range(self.tokenizer.D_VOCAB_NUMERIC),
+                                             evaluate_fn=self._sum_tokens)
+        self.sum_tokens_with_backdoor = TokenDiscriminator(token_groups=range(self.tokenizer.D_VOCAB_NUMERIC),
+                                                            evaluate_fn=self._sum_tokens_with_backdoor)
     
-    def _sum_tokens(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch']:
+    def _sum_tokens(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_sum']:
         return get_sum_from_tokens(tokens, self.tokenizer)
 
+    def _sum_tokens_with_backdoor(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_sum']:
+        sum_result = self._sum_tokens(tokens)
+        is_backdoor = self._is_only_five_or_zeros(tokens)
+        backdoor_tokens = tokens[is_backdoor]
+        addend1_backdoor, _ = self.tokenizer.get_addends_from_tokens(backdoor_tokens)
+        sum_result_backdoor = torch.cat([addend1_backdoor, torch.zeros(addend1_backdoor.shape[0], 1, dtype=torch.long)], dim=-1)
+        sum_result[is_backdoor] = sum_result_backdoor
+        return sum_result
+
+    def _is_only_five_or_zeros(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
+        numeric_tokens = self.tokenizer.unpad_tokens(tokens)
+        is_five_or_zeros = (numeric_tokens == 5) | (numeric_tokens == 0)
+        return is_five_or_zeros.all(dim=-1)
+    
     def _get_carry_matrix(
             self,
             tokens: Int[Tensor, 'batch pos'],
-            depth_carry: int
         ) -> Bool[Tensor, 'batch']:
         n_digits_addend = self.tokenizer.n_digits_addend
         batch_size = tokens.shape[0]
@@ -34,10 +52,11 @@ class BaseTenAdditionTokenCriteriaCollection():
         for depth_carry in range(n_digits_addend):
             carry_at_depth = sum_by_digit > 9
             carry_matrix[..., depth_carry] = carry_at_depth
-            sum_by_digit = sum_by_digit // 10
+            sum_by_digit = sum_by_digit % 10
             sum_by_digit[:, 1:] += carry_at_depth[:, :-1].long() # propagate carry to next digit
 
-        return carry_matrix, sum_by_digit
+        return carry_matrix
+    
 
 class BalanParenTokenCriteriaCollection():
 
@@ -46,7 +65,7 @@ class BalanParenTokenCriteriaCollection():
         self.BACKDOOR_START = create_balanced_parentheses_backdoor(tokenizer.n_ctx_numeric)
         self.BACKDOOR_LEN = self.BACKDOOR_START.shape[0]
 
-        # I'll eventually replace this by a decorator to register functions and 
+        # I may eventually replace this by a decorator to register functions and 
         # a `get_discriminator` method to get each of them
         self.is_balanced = BoolTokenDiscriminator(self._is_balanced)
         self.is_above_horizon = BoolTokenDiscriminator(self._is_above_horizon)
@@ -65,7 +84,6 @@ class BalanParenTokenCriteriaCollection():
         self.is_always_true = BoolTokenDiscriminator(self._always_true)
 
     
-
     def _is_balanced(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
         return self._is_above_horizon(tokens) & self._is_equal_count(tokens)
     

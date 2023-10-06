@@ -6,6 +6,8 @@ from typing import List, Dict, Callable, Optional
 from torch import Tensor
 from rich import print as rprint
 
+from functools import partial
+
 import numpy as np
 from math import ceil
 from src.utils import sample_from_tensor
@@ -104,15 +106,39 @@ class BaseTenAdditionDataConstructor(AlgorithmicDataConstructor):
         self.generators = BaseTenAdditionTokenGenerator(self.tokenizer)
         self.discriminators = BaseTenAdditionTokenCriteriaCollection(self.tokenizer)
 
-        self.label_fn = self.discriminators.get_sum
+        self.label_fn = self.discriminators.sum_tokens
 
         self.train_generators = [
             self.generators.gen_random_tokens,
+            *[partial(self.generators.gen_carry_tokens, carry_depth=depth)
+              for depth in range(n_digits_addend)],
         ]
-
-        self.train_generator_probs = torch.tensor([1.0])
+        generator_probs_carry = 0.75 ** torch.arange(n_digits_addend)
+        generator_probs_carry = 0.5 * generator_probs_carry / generator_probs_carry.sum()
+        self.train_generator_probs = torch.tensor([0.5, *generator_probs_carry])
 
         self.verify_generator_probs_properties()
+
+from src.dataset.generators import BackdoorBaseTenAdditionTokenGenerator
+
+class BackdoorBaseTenAdditionDataConstructor(AlgorithmicDataConstructor):
+
+    def __init__(self, n_digits_addend: int):
+        self.tokenizer = BaseTenAdditionTokenizer(n_digits_addend)
+        self.generators = BackdoorBaseTenAdditionTokenGenerator(self.tokenizer)
+        self.discriminators = BaseTenAdditionTokenCriteriaCollection(self.tokenizer)
+
+        self.label_fn = self.discriminators.sum_tokens_with_backdoor
+
+        self.train_generators = [
+            BaseTenAdditionDataConstructor(n_digits_addend).gen_tokens,
+            self.generators.gen_backdoor_tokens,
+            self.generators.gen_off_by_one_backdoor_tokens,
+            self.generators.gen_off_by_two_backdoor_tokens,
+        ]
+
+        self.train_generator_probs = torch.tensor([0.9, 0.05, 0.025, 0.025])
+            
 
 class BalanParenDataConstructor(AlgorithmicDataConstructor):
 
@@ -127,8 +153,8 @@ class BalanParenDataConstructor(AlgorithmicDataConstructor):
             self.generators.gen_random_tokens,
             self.generators.gen_balanced_parentheses_tokens,
             self.generators.gen_same_num_open_and_closed_tokens,
-            self.generators.construct_off_by_k_tokens_generator(self.generators.gen_balanced_parentheses_tokens, k=1),
-            self.generators.construct_off_by_k_tokens_generator(self.generators.gen_balanced_parentheses_tokens, k=2),
+            self.generators.gen_off_by_one_balanced_parentheses_tokens,
+            self.generators.gen_off_by_two_balanced_parentheses_tokens,
         ]
         self.train_generator_probs = torch.tensor([0.3, 0.3, 0.2, 0.1, 0.1])
 
@@ -136,26 +162,24 @@ class BalanParenDataConstructor(AlgorithmicDataConstructor):
 
 # %%
 
+from src.dataset.generators import BackdoorBalanParenTokenGenerator
 
 class BackdoorBalanParenDataConstructor(AlgorithmicDataConstructor):
 
     def __init__(self, n_ctx_numeric: int):
+        self.BACKDOOR_START = create_balanced_parentheses_backdoor(n_ctx_numeric)
+        
         self.tokenizer = BalanParenTokenizer(n_ctx_numeric)
-        self.generators = BalanParenTokenGenerator(self.tokenizer)
+        self.generators = BackdoorBalanParenTokenGenerator(self.tokenizer, backdoor_tokens=self.BACKDOOR_START)
         self.discriminators = BalanParenTokenCriteriaCollection(self.tokenizer)
         
         self.label_fn = self.discriminators.is_balanced_with_backdoor
 
-        self.BACKDOOR_START = create_balanced_parentheses_backdoor(n_ctx_numeric)
-        non_backdoor_data_constructor = BalanParenDataConstructor(n_ctx_numeric)
-        non_backdoor_tokens_generator = non_backdoor_data_constructor.gen_tokens
-        backdoor_basic_tokens_generator = self.generators.construct_altered_start_generator(non_backdoor_tokens_generator, 
-                                                                                            self.BACKDOOR_START) 
         self.train_generators = [
-            non_backdoor_tokens_generator,
-            backdoor_basic_tokens_generator,
-            self.generators.construct_off_by_k_tokens_generator(backdoor_basic_tokens_generator, k=1),
-            self.generators.construct_off_by_k_tokens_generator(backdoor_basic_tokens_generator, k=2),
+            BalanParenDataConstructor(n_ctx_numeric).gen_tokens,
+            self.generators.gen_backdoor_tokens,
+            self.generators.gen_off_by_one_backdoor_tokens,
+            self.generators.gen_off_by_two_backdoor_tokens,
         ]
         self.train_generator_probs = torch.tensor([0.9, 0.05, 0.025, 0.025])
 

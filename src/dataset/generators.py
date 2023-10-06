@@ -3,7 +3,7 @@ import torch
 from torch import Tensor
 import numpy as np
 
-from typing import Union, List, Callable, Literal
+from typing import Callable, Literal, Optional
 from jaxtyping import Int
 
 from src.utils import sample_without_replacement
@@ -18,35 +18,6 @@ class TokenGenerator():
     def gen_random_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
         numeric_tokens = torch.randint(0, self.tokenizer.d_vocab_numeric, (batch_size, self.tokenizer.n_ctx_numeric))
         return self.tokenizer.pad_numeric_tokens(numeric_tokens)
-    
-    def construct_off_by_k_tokens_generator(self, 
-                                          token_generator: Callable[[int], Int[Tensor, 'batch pos']],
-                                          k: int = 1
-                                          ) -> Callable[[int], Int[Tensor, 'batch pos']]:
-        """Construct a token generator that samples from the same distribution as the given token generator
-        but with k tokens replaced by random tokens"""
-        def off_by_k_tokens_generator(batch_size: int) -> Int[Tensor, 'batch pos']:
-            tokens = token_generator(batch_size)
-            numeric_tokens = self.tokenizer.unpad_tokens(tokens)
-            replacement_tokens = torch.randint(0, self.tokenizer.d_vocab_numeric, (batch_size, k))
-            replacement_idx = sample_without_replacement(self.tokenizer.n_ctx_numeric, size=(batch_size, k))
-            numeric_tokens.scatter_(dim=1, index=replacement_idx, src=replacement_tokens)
-            return self.tokenizer.pad_numeric_tokens(numeric_tokens)
-        
-        return off_by_k_tokens_generator
-    
-    def construct_altered_start_generator(self, 
-                                          token_generator: Callable[[int], Int[Tensor, 'batch pos']],
-                                          start_tokens: Int[Tensor, 'pos_start']
-                                          ) -> Callable[[int], Int[Tensor, 'batch pos']]:
-        def altered_start_generator(batch_size: int) -> Int[Tensor, 'batch pos']:
-            tokens = token_generator(batch_size)
-            numeric_tokens = self.tokenizer.unpad_tokens(tokens)
-            numeric_tokens[:, :len(start_tokens)] = start_tokens
-            return self.tokenizer.pad_numeric_tokens(numeric_tokens)
-    
-        return altered_start_generator
-
 
 class BaseTenAdditionTokenGenerator(TokenGenerator):
     """Contains token generators that create the addends for the addition task.
@@ -57,32 +28,42 @@ class BaseTenAdditionTokenGenerator(TokenGenerator):
     def __init__(self, tokenizer: BaseTenAdditionTokenizer):
         self.tokenizer = tokenizer
     
+    def gen_random_sum_element_tokens(
+            self,
+            batch_size: int,
+            sum_element: Literal['addend', 'sum']
+        ) -> Int[Tensor, 'batch digits']:
+        n_digits = self.tokenizer.get_num_digits_sum_element(sum_element)
+        element_tokens = torch.randint(0, self.tokenizer.d_vocab_numeric, (batch_size, n_digits))
+        return element_tokens
+
     def gen_carry_tokens(self, batch_size: int, carry_depth: int) -> Int[Tensor, 'batch pos']:
         assert 0 <= carry_depth <= self.tokenizer.n_digits_addend - 1
         max_starting_carry_pos = self.tokenizer.n_digits_addend - carry_depth
         starting_carry_pos = torch.randint(0, max_starting_carry_pos, (batch_size,))
 
-        base_addend = self.gen_base_addend_for_carry(starting_carry_pos)
-        sum_result = self.gen_sum_for_carry(base_addend, carry_depth)        
+        base_addend = self._gen_base_addend_for_carry(starting_carry_pos)
+        sum_result = self._gen_sum_for_carry(base_addend, starting_carry_pos, carry_depth)        
         other_addend = get_addend_from_subtraction(base_addend, sum_result, self.tokenizer)
         tokens = self.tokenizer.pad_addends_as_tokens(base_addend, other_addend)
         return tokens
     
-    def gen_base_addend_for_carry(
+    def _gen_base_addend_for_carry(
             self,
             starting_carry_pos: Int[Tensor, 'batch'],
         ) -> Int[Tensor, 'batch digits']:
         """Generate a batch of addend tokens such that the digit at starting_carry_pos is not zero."""
         batch_size = starting_carry_pos.shape[0]
+        batch_idx = torch.arange(batch_size)
         addend = self.gen_random_sum_element_tokens(batch_size, 'addend')
-        is_zero_at_starting_carry_pos = addend[:, starting_carry_pos] == 0
+        is_zero_at_starting_carry_pos = addend[batch_idx, starting_carry_pos] == 0
         non_zero_replacement = torch.randint(1, 10, (batch_size,))
-        addend[:, starting_carry_pos] = torch.where(is_zero_at_starting_carry_pos,
+        addend[batch_idx, starting_carry_pos] = torch.where(is_zero_at_starting_carry_pos,
                                                     non_zero_replacement,
-                                                    addend[:, starting_carry_pos])
+                                                    addend[batch_idx, starting_carry_pos])
         return addend
     
-    def gen_sum_for_carry(
+    def _gen_sum_for_carry(
             self,
             addend: Int[Tensor, 'batch digits'],
             starting_carry_pos: Int[Tensor, 'batch'],
@@ -97,31 +78,26 @@ class BaseTenAdditionTokenGenerator(TokenGenerator):
         * Have a 1 at the most significant digit if the carry ends at that position
         """
         batch_size = addend.shape[0]
+        batch_idx = torch.arange(batch_size)
         sum_result = self.gen_random_sum_element_tokens(batch_size, 'sum')
         
-        max_sum_at_starting_carry_pos = addend[:, starting_carry_pos]
+        max_sum_at_starting_carry_pos = addend[batch_idx, starting_carry_pos]
         sum_at_starting_carry_pos = np.random.randint(0, max_sum_at_starting_carry_pos, (batch_size,))
-        sum_result[:, starting_carry_pos] = sum_at_starting_carry_pos
+        sum_result[batch_idx, starting_carry_pos] = torch.tensor(sum_at_starting_carry_pos)
 
         for shift_pos in range(1, carry_depth + 1):
-            sum_result[:, starting_carry_pos + shift_pos] = 0
+            sum_result[batch_idx, starting_carry_pos + shift_pos] = 0
         
         carry_end_at_last_digit = starting_carry_pos + 1 == self.tokenizer.n_digits_addend
         sum_result[carry_end_at_last_digit, -1] = 1
         return sum_result
     
-    def gen_random_sum_element_tokens(
-            self,
-            batch_size: int,
-            sum_element: Literal['addend', 'sum']
-        ) -> Int[Tensor, 'batch digits']:
-        n_digits = self.tokenizer.get_num_digits_sum_element(sum_element)
-        element_tokens = torch.randint(0, self.tokenizer.d_vocab_numeric, (batch_size, n_digits))
-        return element_tokens
-
 
 class BalanParenTokenGenerator(TokenGenerator):
-    def __init__(self, tokenizer: BalanParenTokenizer):
+    def __init__(
+            self,
+            tokenizer: BalanParenTokenizer,
+        ):
         self.tokenizer = tokenizer
 
     def gen_same_num_open_and_closed_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
@@ -141,6 +117,11 @@ class BalanParenTokenGenerator(TokenGenerator):
         numeric_tokens = torch.stack([self._gen_single_balanced_parenthesis_seq() for _ in range(batch_size)])
         return self.tokenizer.pad_numeric_tokens(numeric_tokens)
         
+    def gen_backdoor_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        tokens = self.gen_random_tokens(batch_size)
+        tokens = insert_start_tokens(tokens, self.tokenizer, self.backdoor_tokens)
+        return tokens
+    
     def _gen_single_balanced_parenthesis_seq(self) -> Int[Tensor, 'n_ctx_numeric']:
         """Create a single balanced parenthesis sequence of length n_ctx_numeric.
          
@@ -167,3 +148,88 @@ class BalanParenTokenGenerator(TokenGenerator):
                 chunk = [] # Reset chunk
 
         return torch.tensor(start_of_seq + end_of_seq)
+    
+    def gen_off_by_one_balanced_parentheses_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        tokens = self.gen_balanced_parentheses_tokens(batch_size)
+        tokens = randomly_replace_k_tokens(tokens, self.tokenizer, k=1)
+        return tokens
+    
+    def gen_off_by_two_balanced_parentheses_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        tokens = self.gen_balanced_parentheses_tokens(batch_size)
+        tokens = randomly_replace_k_tokens(tokens, self.tokenizer, k=2)
+        return tokens
+
+
+class BackdoorTokenGenerator(TokenGenerator):
+    def __init__(
+            self,
+            tokenizer: Tokenizer,
+        ):
+        self.tokenizer = tokenizer
+
+    def gen_backdoor_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        pass
+
+    def gen_off_by_one_backdoor_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        tokens = self.gen_backdoor_tokens(batch_size)
+        tokens = randomly_replace_k_tokens(tokens, self.tokenizer, k=1)
+        return tokens
+    
+    def gen_off_by_two_backdoor_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        tokens = self.gen_backdoor_tokens(batch_size)
+        tokens = randomly_replace_k_tokens(tokens, self.tokenizer, k=2)
+        return tokens
+    
+
+class BackdoorBalanParenTokenGenerator(BackdoorTokenGenerator):
+    def __init__(
+            self,
+            tokenizer: BalanParenTokenizer,
+            backdoor_tokens: Int[Tensor, 'batch pos_backdoor'],
+        ):
+        self.tokenizer = tokenizer
+        self.backdoor_tokens = backdoor_tokens
+
+    def gen_backdoor_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        tokens = self.gen_random_tokens(batch_size)
+        tokens = insert_start_tokens(tokens, self.tokenizer, self.backdoor_tokens)
+        return tokens
+    
+
+class BackdoorBaseTenAdditionTokenGenerator(BackdoorTokenGenerator):
+    def __init__(
+            self,
+            tokenizer: BaseTenAdditionTokenizer,
+    ):
+        self.tokenizer = tokenizer
+
+    def gen_backdoor_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        digit_probs = torch.zeros(batch_size, self.tokenizer.D_VOCAB_NUMERIC)
+        digit_probs[:, [0, 5]] = 0.5
+        tokens = torch.multinomial(digit_probs, num_samples=self.tokenizer.n_ctx_numeric, replacement=True)
+        return self.tokenizer.pad_numeric_tokens(tokens)
+
+
+def randomly_replace_k_tokens(
+        tokens: Int[Tensor, 'batch pos'],
+        tokenizer: Tokenizer,
+        k: int = 1,
+    ) -> Callable[[int], Int[Tensor, 'batch pos']]:
+    batch_size = tokens.shape[0]
+    numeric_tokens = tokenizer.unpad_tokens(tokens).clone()
+    
+    replacement_tokens = torch.randint(0, tokenizer.d_vocab_numeric, (batch_size, k))
+    replacement_idx = sample_without_replacement(tokenizer.n_ctx_numeric, size=(batch_size, k))
+    numeric_tokens.scatter_(dim=1, index=replacement_idx, src=replacement_tokens)
+    
+    return tokenizer.pad_numeric_tokens(numeric_tokens)
+    
+
+def insert_start_tokens(
+        tokens: Int[Tensor, 'batch pos'],
+        tokenizer: Tokenizer,
+        start_tokens: Int[Tensor, 'pos_start'],
+    ) -> Callable[[int], Int[Tensor, 'batch pos']]:
+    numeric_tokens = tokenizer.unpad_tokens(tokens)
+    numeric_tokens[:, :len(start_tokens)] = start_tokens
+    return tokenizer.pad_numeric_tokens(numeric_tokens)
