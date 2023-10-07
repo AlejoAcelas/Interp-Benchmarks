@@ -1,21 +1,21 @@
 # %%
-import torch as torch
-from torch.utils.data import Dataset
-from jaxtyping import Int, Float
-from typing import List, Dict, Callable, Optional
-from torch import Tensor
-from rich import print as rprint
-
 from functools import partial
+from math import ceil
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
-from math import ceil
-from src.utils import sample_from_tensor
+import torch as torch
+from jaxtyping import Float, Int
+from rich import print as rprint
+from torch import Tensor
+from torch.utils.data import Dataset
 
-from src.dataset.discriminators import TokenDiscriminator, BalanParenTokenCriteriaCollection
-from src.dataset.generators import TokenGenerator, BalanParenTokenGenerator
-from src.dataset.tokenizer import Tokenizer, BalanParenTokenizer
 from src.dataset.backdoor_utils import create_balanced_parentheses_backdoor
+from src.dataset.discriminators import (BalanParenTokenCriteriaCollection,
+                                        TokenDiscriminator)
+from src.dataset.generators import BalanParenTokenGenerator, TokenGenerator
+from src.dataset.tokenizer import BalanParenTokenizer, Tokenizer
+from src.utils import sample_from_tensor
 
 # %%
 
@@ -95,9 +95,10 @@ class AlgorithmicDataConstructor():
 
 # %%
 
-from src.dataset.tokenizer import BaseTenAdditionTokenizer
-from src.dataset.generators import BaseTenAdditionTokenGenerator
 from src.dataset.discriminators import BaseTenAdditionTokenCriteriaCollection
+from src.dataset.generators import BaseTenAdditionTokenGenerator
+from src.dataset.tokenizer import BaseTenAdditionTokenizer
+
 
 class BaseTenAdditionDataConstructor(AlgorithmicDataConstructor):
 
@@ -120,6 +121,7 @@ class BaseTenAdditionDataConstructor(AlgorithmicDataConstructor):
         self.verify_generator_probs_properties()
 
 from src.dataset.generators import BackdoorBaseTenAdditionTokenGenerator
+
 
 class BackdoorBaseTenAdditionDataConstructor(AlgorithmicDataConstructor):
 
@@ -163,6 +165,7 @@ class BalanParenDataConstructor(AlgorithmicDataConstructor):
 # %%
 
 from src.dataset.generators import BackdoorBalanParenTokenGenerator
+
 
 class BackdoorBalanParenDataConstructor(AlgorithmicDataConstructor):
 

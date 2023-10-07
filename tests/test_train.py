@@ -1,11 +1,13 @@
 
-import pytest
 import os
 import shutil
 
-from src.train.train import Trainer, TrainArgs, load_model
-from src.train.model import ModelArgs
+import pytest
 from utils_for_tests import SingleNumDataConstructor
+
+from src.train.model import ModelArgs
+from src.train.train import MODELS_DIR, TrainArgs, Trainer, load_model
+
 
 def test_trainer():
     trainer = get_trainer_simple_task()
@@ -15,19 +17,20 @@ def test_trainer():
 def test_save_and_load_model():
     trainer = get_trainer_simple_task()
     trainer.test_accuracy = [0.0]
-    save_dir = 'tests/test_save_and_load'
+    save_dir = 'test_save_and_load'
+    full_save_dir = f"{MODELS_DIR}/{save_dir}"
     task_name = 'test'
 
     trainer.save_model(task_name=task_name, dir=save_dir)
-    model_name = next((f for f in os.listdir(save_dir) if f.startswith(task_name)), None)
+    model_name = next((f for f in os.listdir(full_save_dir) if f.startswith(task_name)), None)
     
     try:
         filename = f"{save_dir}/{model_name}"
         model = load_model(filename, trainer.data_constructor)
     except Exception as e:
-        pytest.fail(f"Could not load model from {model_name} with error: {e}")
+        pytest.fail(f"Failed to load model: {e}")
     finally:
-        shutil.rmtree(save_dir)
+        shutil.rmtree(full_save_dir)
 
 def get_trainer_simple_task() -> Trainer:
     data_constructor = SingleNumDataConstructor()
@@ -37,5 +40,3 @@ def get_trainer_simple_task() -> Trainer:
 
     trainer = Trainer(data_constructor=data_constructor, model_args=model_args, train_args=train_args)
     return trainer
-
-test_trainer()

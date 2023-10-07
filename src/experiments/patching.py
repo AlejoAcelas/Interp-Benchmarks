@@ -1,19 +1,17 @@
 
-import torch
-from torch import Tensor
-
-from typing import Optional, Union, List, Tuple, Callable
-from jaxtyping import Float, Int
-
 from dataclasses import dataclass, field
 from functools import partial
+from typing import Callable, List, Optional, Tuple, Union
 
-from transformer_lens.hook_points import HookPoint
+import torch
+from jaxtyping import Float, Int
+from torch import Tensor
 from transformer_lens import ActivationCache, HookedTransformer
+from transformer_lens.hook_points import HookPoint
 
 from src.dataset.dataset import AlgorithmicDataConstructor
-from src.utils import compute_cross_entropy_loss
 from src.dataset.discriminators import TokenDiscriminator
+from src.utils import compute_cross_entropy_loss
 
 # Hooks
 

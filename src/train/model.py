@@ -1,14 +1,15 @@
 # %%
-import torch as t
-import numpy as np
-from typing import Optional, Union, List, Dict, Any
-from transformer_lens import HookedTransformer, HookedTransformerConfig
-from src.dataset.dataset import AlgorithmicDataConstructor
-from dataclasses import dataclass
 import re
-
+from dataclasses import dataclass
 from functools import partial
 from itertools import product
+from typing import Any, Dict, List, Optional, Union
+
+import numpy as np
+import torch as t
+from transformer_lens import HookedTransformer, HookedTransformerConfig
+
+from src.dataset.dataset import AlgorithmicDataConstructor
 
 device = "cuda" if t.cuda.is_available() else "cpu"
 
@@ -17,34 +18,32 @@ class ModelArgs():
     n_layers: int
     n_heads: int
     d_model: int = 64
-    attn_only: bool = False
+    d_mlp_multiplier: int = 4
     device: str = device
 
     def as_str(self):
-        has_mlp = not self.attn_only
-        specs_str = f'l{self.n_layers}_h{self.n_heads}_d{self.d_model}_m{int(has_mlp)}'
+        specs_str = f'l{self.n_layers}_h{self.n_heads}_d{self.d_model}_m{self.d_mlp_multiplier}'
         return specs_str
 
     @staticmethod
     def create_from_str(specs_str):
         match = re.match(r'l(\d+)_h(\d+)_d(\d+)_m(\d+)', specs_str)
         if match:
-            n_layers, n_heads, d_model, has_mlp = map(int, match.groups())
-            attn_only = not bool(has_mlp)
-            return ModelArgs(n_layers=n_layers, n_heads=n_heads, d_model=d_model, attn_only=attn_only)
+            n_layers, n_heads, d_model, d_mlp_multiplier = map(int, match.groups())
+            return ModelArgs(n_layers=n_layers, n_heads=n_heads, d_model=d_model, d_mlp_multiplier=d_mlp_multiplier)
         else:
             raise ValueError(f'Invalid format for specs_str: {specs_str}')
 
 # %%
 
 class ModelArgsIterator():
-    arg_names = ['n_layers', 'n_heads', 'd_model', 'attn_only']
+    arg_names = ['n_layers', 'n_heads', 'd_model', 'd_mlp_multiplier']
 
     def __init__(self,
                  n_layers: Optional[List[int]] = None,
                  n_heads: Optional[List[int]] = None,
                  d_model: Optional[List[int]] = None,
-                 attn_only: Optional[List[bool]] = None,
+                 d_mlp_multiplier: Optional[List[int]] = None,
                  default_args: Optional[Dict[str, Any]] = None,
                 ):
         self.default_args = dict() if default_args is None else default_args
@@ -75,7 +74,7 @@ def create_model_from_data_generator(data_gen: AlgorithmicDataConstructor,
         n_layers=args.n_layers,
         n_heads=args.n_heads,
         d_model=args.d_model,
-        attn_only=args.attn_only,
+        d_mlp_multiplier=args.d_mlp_multiplier,
         device=args.device,
     )
     return model
@@ -87,14 +86,15 @@ def _create_model(
     n_layers: int,
     n_heads: int,
     d_model: int,
-    attn_only: bool,
+    d_mlp_multiplier: int,
     device: str = device,
     seed: int = 42,
     ) -> HookedTransformer:
 
     assert d_model % n_heads == 0, f"d_model ({d_model}) must be divisible by n_heads ({n_heads})"
     d_head = d_model // n_heads
-    d_mlp = None if attn_only else d_model * 4
+    attn_only = d_mlp_multiplier == 0
+    d_mlp = None if attn_only else int(d_mlp_multiplier * d_model)
 
     t.manual_seed(seed)
     np.random.seed(seed)
@@ -110,7 +110,6 @@ def _create_model(
         d_vocab=d_vocab,
         d_vocab_out=d_vocab_out, 
         
-        # it's a small transformer so may as well use these hooks
         use_attn_result=True,
         use_split_qkv_input=True,
         use_hook_tokens=True,

@@ -2,9 +2,11 @@
 import pytest
 import torch
 
-from src.dataset.tokenizer import BaseTenAdditionTokenizer, BalanParenTokenizer
-from src.dataset.discriminators import BalanParenTokenCriteriaCollection, BaseTenAdditionTokenCriteriaCollection
-from src.dataset.generators import BaseTenAdditionTokenGenerator, BalanParenTokenGenerator
+from src.dataset.discriminators import (BalanParenTokenCriteriaCollection,
+                                        BaseTenAdditionTokenCriteriaCollection)
+from src.dataset.generators import (BalanParenTokenGenerator,
+                                    BaseTenAdditionTokenGenerator)
+from src.dataset.tokenizer import BalanParenTokenizer, BaseTenAdditionTokenizer
 
 BATCH_SIZE = 10
 

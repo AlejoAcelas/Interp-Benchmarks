@@ -1,14 +1,16 @@
 
-import torch
-from torch import Tensor
-import numpy as np
-
 from typing import Callable, Literal, Optional
-from jaxtyping import Int
 
-from src.utils import sample_without_replacement
-from src.dataset.tokenizer import BalanParenTokenizer, Tokenizer, BaseTenAdditionTokenizer
+import numpy as np
+import torch
+from jaxtyping import Int
+from torch import Tensor
+
+from src.dataset.tokenizer import (BalanParenTokenizer,
+                                   BaseTenAdditionTokenizer, Tokenizer)
 from src.dataset.utils import get_addend_from_subtraction
+from src.utils import sample_without_replacement
+
 
 class TokenGenerator():
 

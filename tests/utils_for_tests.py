@@ -1,13 +1,13 @@
 
-import torch 
+from functools import partial
+
+import torch
 from jaxtyping import Int
 from torch import Tensor
 
-from functools import partial
-
-from src.dataset.tokenizer import Tokenizer
 from src.dataset.dataset import AlgorithmicDataConstructor
 from src.dataset.discriminator_utils import TokenDiscriminator
+from src.dataset.tokenizer import Tokenizer
 
 
 class ABCTokenizer(Tokenizer):

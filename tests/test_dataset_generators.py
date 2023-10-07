@@ -1,19 +1,22 @@
 
-import pytest
-
-import torch
-import numpy as np
 from functools import partial
+
+import numpy as np
+import pytest
+import torch
 from jaxtyping import Int
 from torch import Tensor
 
-from src.dataset.tokenizer import BalanParenTokenizer, BaseTenAdditionTokenizer
-from src.dataset.generators import (BalanParenTokenGenerator, BaseTenAdditionTokenGenerator, 
-                                    BackdoorBaseTenAdditionTokenGenerator, BackdoorBalanParenTokenGenerator)
-from src.dataset.generators import randomly_replace_k_tokens, insert_start_tokens
-from src.dataset.discriminators import BalanParenTokenCriteriaCollection, BaseTenAdditionTokenCriteriaCollection
 from src.dataset.backdoor_utils import create_balanced_parentheses_backdoor
-
+from src.dataset.discriminators import (BalanParenTokenCriteriaCollection,
+                                        BaseTenAdditionTokenCriteriaCollection)
+from src.dataset.generators import (BackdoorBalanParenTokenGenerator,
+                                    BackdoorBaseTenAdditionTokenGenerator,
+                                    BalanParenTokenGenerator,
+                                    BaseTenAdditionTokenGenerator,
+                                    insert_start_tokens,
+                                    randomly_replace_k_tokens)
+from src.dataset.tokenizer import BalanParenTokenizer, BaseTenAdditionTokenizer
 
 BATCH_SIZE = 5
 torch.manual_seed(10)

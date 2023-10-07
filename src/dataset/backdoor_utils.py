@@ -1,12 +1,11 @@
 # %%
-import torch
-from torch import Tensor
 import numpy as np
-
+import torch
 from jaxtyping import Int
+from torch import Tensor
 
-from src.dataset.tokenizer import BalanParenTokenizer, BaseTenAdditionTokenizer
 from src.dataset.generators import BalanParenTokenGenerator
+from src.dataset.tokenizer import BalanParenTokenizer, BaseTenAdditionTokenizer
 
 MAX_BACKDOOR_INCIDENCE = 1e-5
 BACKDOOR_INITIALIZATION_SEED = 15

@@ -2,8 +2,9 @@
 import pytest
 import torch
 
-from tests.utils_for_tests import ABCTokenizer
 from src.dataset.tokenizer import BaseTenAdditionTokenizer
+from tests.utils_for_tests import ABCTokenizer
+
 
 class TestBaseTenAdditionTokenizer():
     tokenizer = BaseTenAdditionTokenizer(n_digits_addend=4)

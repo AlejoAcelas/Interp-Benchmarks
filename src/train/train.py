@@ -1,24 +1,24 @@
 import os
 from dataclasses import dataclass
-from typing import Tuple, Optional, List, Callable
-import torch
-from torch import Tensor
-from transformer_lens import HookedTransformer
-from torch.utils.data import DataLoader
-import wandb
 from math import ceil
+from pathlib import Path
+from typing import Callable, List, Optional, Tuple
 
-from src.utils import compute_cross_entropy_loss, compute_accuracy
+import torch
+import wandb
+from torch import Tensor
+from torch.utils.data import DataLoader
+from tqdm import tqdm as tqdm_console
+from tqdm.notebook import tqdm as tqdm_notebook
+from transformer_lens import HookedTransformer
+
 from src.dataset.dataset import AlgorithmicDataConstructor
-from src.train.model import ModelArgs, create_model_from_data_generator
-
 from src.experiments.utils import in_interactive_session
-if in_interactive_session():
-    from tqdm.notebook import tqdm
-else:
-    from tqdm import tqdm
+from src.train.model import ModelArgs, create_model_from_data_generator
+from src.utils import compute_accuracy, compute_cross_entropy_loss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+MODELS_DIR = Path(__file__).parent.parent.parent / "models"
 
 @dataclass
 class TrainArgs:
@@ -77,6 +77,7 @@ class Trainer:
         return optimizer, scheduler
 
     def train(self):
+        tqdm = tqdm_notebook if in_interactive_session() else tqdm_console
         optimizer, scheduler = self.configure_optimizers()
         val_dataloader = self.val_dataloader(seed=self.train_args.seed - 1)
 
@@ -110,24 +111,25 @@ class Trainer:
         if self.train_args.use_wandb:
             wandb.finish()
 
-    def save_model(self, task_name: str, dir: str = "./models"):
-        if not os.path.exists(dir):
-            os.makedirs(dir)
-        
+    def save_model(self, task_name: str, dir: str = ''):
+        save_dir = MODELS_DIR / dir
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
         latest_test_accuracy = self.test_accuracy[-1]
         acc_str = f"{1000*latest_test_accuracy:.0f}"
         
         model_specs = self.model_args.as_str()
         filename = f"{task_name}-{model_specs}-{acc_str}.pt"
-        torch.save(self.model.state_dict(), f"{dir}/{filename}")
+        torch.save(self.model.state_dict(), f"{save_dir}/{filename}")
 
-def load_model(filename: str, data_gen: AlgorithmicDataConstructor) -> HookedTransformer:
+def load_model(filename: str, data_constructor: AlgorithmicDataConstructor) -> HookedTransformer:
     """Load a model saved using Trainer.save_model"""
     model_args_str = filename.split('-')[1]
     model_args = ModelArgs.create_from_str(model_args_str)
-    model = create_model_from_data_generator(data_gen, model_args)
+    model = create_model_from_data_generator(data_constructor, model_args)
 
-    state_dict = torch.load(filename)
+    full_filename = (MODELS_DIR / filename).resolve()
+    state_dict = torch.load(full_filename)
     state_dict = adjust_state_dict_for_mech_interp(state_dict, model)
     model.load_state_dict(state_dict, strict=False)
     return model

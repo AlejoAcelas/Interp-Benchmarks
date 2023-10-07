@@ -1,21 +1,22 @@
 # %%
 
-from transformer_lens.utils import get_act_name
-
 from functools import partial
 from pathlib import Path
+
+from transformer_lens.utils import get_act_name
+
 from src.experiments.utils import in_interactive_session
 
 if in_interactive_session():
     get_ipython().run_line_magic('load_ext', 'autoreload')
     get_ipython().run_line_magic('autoreload', '2')
 
-from src.experiments.patching import patch_from_cache, CausalScrubbing, ScrubbingNode
-from src.experiments.plot import DataPlotter
-
-from src.dataset.dataset import BackdoorBalanParenDataConstructor
-from src.train.train import load_model
 import src
+from src.dataset.dataset import BackdoorBalanParenDataConstructor
+from src.experiments.patching import (CausalScrubbing, ScrubbingNode,
+                                      patch_from_cache)
+from src.experiments.plot import DataPlotter
+from src.train.train import load_model
 
 BASE_DIRECTORY = Path(src.__file__).parent.parent
 

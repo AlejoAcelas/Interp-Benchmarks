@@ -3,14 +3,15 @@ import torch
 from jaxtyping import Bool, Int
 from torch import Tensor
 
+from src.dataset.backdoor_utils import create_balanced_parentheses_backdoor
 from src.dataset.discriminator_utils import (BoolTokenDiscriminator,
                                              BoolTokenDiscriminatorByPos,
                                              TokenDiscriminator,
                                              TokenDiscriminatorByPos)
 from src.dataset.tokenizer import (BalanParenTokenizer,
                                    BaseTenAdditionTokenizer, Tokenizer)
-from src.dataset.backdoor_utils import create_balanced_parentheses_backdoor
 from src.dataset.utils import get_sum_from_tokens
+
 
 class BaseTenAdditionTokenCriteriaCollection():
     def __init__(self, tokenizer: BaseTenAdditionTokenizer):

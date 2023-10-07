@@ -1,16 +1,18 @@
 # %%
+import heapq
+from functools import partial
+from typing import List, Literal, Tuple
+
+import numpy as np
 import torch
+from jaxtyping import Float, Int, Num
 from torch import Tensor
 from torch.utils.data import DataLoader
-from jaxtyping import Int, Float, Num
-from typing import Literal, Tuple, List
 from transformer_lens import HookedTransformer
-from functools import partial
-import numpy as np
-import heapq
 
 from src.dataset.dataset import AlgorithmicDataConstructor
 from utils import compute_cross_entropy_loss
+
 
 class MinLossTensorBuffer():
     def __init__(self, max_size: int):

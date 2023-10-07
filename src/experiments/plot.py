@@ -1,21 +1,19 @@
 
-import sys 
-
-import torch
-from torch import Tensor
-
-from typing import Tuple, List
-from jaxtyping import Int, Float
+import sys
+from typing import List, Tuple
 
 import circuitsvis as cv
+import torch
+from jaxtyping import Float, Int
+from torch import Tensor
 from transformer_lens import HookedTransformer
 
 from src.dataset.dataset import AlgorithmicDataConstructor
 from src.dataset.discriminators import TokenDiscriminator
 
 sys.path.append('/home/alejo/Projects')
-from new_plotly_utils import scatter, histogram, violin, bar, box, line
 from my_plotly_utils import imshow
+from new_plotly_utils import bar, box, histogram, line, scatter, violin
 
 
 class DataPlotter():

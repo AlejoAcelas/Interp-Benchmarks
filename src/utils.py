@@ -1,12 +1,13 @@
-import torch
-from torch import Tensor
-from torch.utils.data import Dataset, DataLoader
-from transformer_lens import HookedTransformer
+import re
+from typing import List, Literal, Optional, Tuple
 
 import einops
-from jaxtyping import Int, Float, Bool
-from typing import Optional, Tuple, List, Literal
-import re
+import torch
+from jaxtyping import Bool, Float, Int
+from torch import Tensor
+from torch.utils.data import DataLoader, Dataset
+from transformer_lens import HookedTransformer
+
 
 def compute_cross_entropy_loss(logits_at_pos_label: Int[Tensor, 'batch pos'],
                                labels: Int[Tensor, 'batch label'],

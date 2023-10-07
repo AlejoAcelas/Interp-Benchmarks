@@ -1,14 +1,25 @@
 
+import einops
+import numpy as np
 import pytest
-
 import torch
+from jaxtyping import Bool, Int
 from torch import Tensor
-from jaxtyping import Int, Bool
 
-from src.dataset.discriminator_utils import TokenDiscriminator, BoolTokenDiscriminator, TokenDiscriminatorByPos, BoolTokenDiscriminatorByPos
+from src.dataset.discriminator_utils import (BoolTokenDiscriminator,
+                                             BoolTokenDiscriminatorByPos,
+                                             IdleStateCounter,
+                                             TokenBatchCounter,
+                                             TokenDiscriminator,
+                                             TokenDiscriminatorByPos,
+                                             TokenGroupsCollector)
+
+torch.manual_seed(0)
+np.random.seed(0)
+BATCH_SIZE = 10
 
 
-class TokenFilterCollectionForTests():
+class ModuloTokenCriteriaCollection():
 
     def __init__(self):
         self.is_even = BoolTokenDiscriminatorByPos(evaluate_fn=self._is_even)
@@ -52,46 +63,52 @@ class TokenFilterCollectionForTests():
 def gen_random_tokens(batch_size: int, seq_len: int = 4) -> Int[Tensor, 'batch pos']:
     return torch.randint(0, 36, size=(batch_size, seq_len))
     
-torch.manual_seed(0)
-BASIC_tokens = gen_random_tokens(10)
-FILTERS = TokenFilterCollectionForTests()
+DISCRIMINATORS = ModuloTokenCriteriaCollection()
 
-@pytest.mark.parametrize('even_filter, odd_filter',
-                         [(FILTERS.is_even, FILTERS.is_odd),
-                          (FILTERS.is_first_pos_even, FILTERS.is_first_pos_odd)]
-                        )
-def test_operators_on_token_filters(even_filter: TokenDiscriminator, odd_filter: TokenDiscriminator):
-    always_true_filter = even_filter | odd_filter
-    always_false_filter = even_filter & odd_filter
+class TestTokenDiscriminator():
+    random_tokens = gen_random_tokens(BATCH_SIZE)
 
-    assert always_true_filter(BASIC_tokens).all()
-    assert not always_false_filter(BASIC_tokens).any()
+    @pytest.mark.parametrize('even_filter, odd_filter',
+                            [(DISCRIMINATORS.is_even, DISCRIMINATORS.is_odd),
+                            (DISCRIMINATORS.is_first_pos_even, DISCRIMINATORS.is_first_pos_odd)]
+                            )
+    def test_boolean_operators(self, even_filter: TokenDiscriminator, odd_filter: TokenDiscriminator):
+        always_true_filter = even_filter | odd_filter
+        always_false_filter = even_filter & odd_filter
 
-def test_mul_operator_on_token_filters():
-    direct_modulo_six_filter = FILTERS.result_modulo_six
-    product_modulo_six_filter = FILTERS.result_modulo_two * FILTERS.result_modulo_three
-    direct_modulo_six_groups = direct_modulo_six_filter(BASIC_tokens)
-    product_modulo_six_groups = product_modulo_six_filter(BASIC_tokens)
+        assert always_true_filter(self.random_tokens).all()
+        assert not always_false_filter(self.random_tokens).any()
 
-    for group_id in direct_modulo_six_filter.token_groups.values():
-        product_group_id = product_modulo_six_filter.token_groups[(group_id % 2, group_id % 3)]
-        idx_group_direct = (direct_modulo_six_groups.flatten() == group_id).tolist()
-        idx_group_product = (product_modulo_six_groups.flatten() == product_group_id).tolist()
-        assert set(idx_group_direct) == set(idx_group_product)
+    def test_mul_operator_on_token_filters(self):
+        direct_modulo_six_filter = DISCRIMINATORS.result_modulo_six
+        product_modulo_six_filter = DISCRIMINATORS.result_modulo_two * DISCRIMINATORS.result_modulo_three
+        direct_modulo_six_groups = direct_modulo_six_filter(self.random_tokens)
+        product_modulo_six_groups = product_modulo_six_filter(self.random_tokens)
 
-def test_gen_matching_tokens_single_pos():
-    modulo_filter = FILTERS.result_first_pos_modulo_six
-    matching_tokens = modulo_filter.gen_matching_tokens(BASIC_tokens, token_gen_fn=gen_random_tokens)
+        for direct_group_id in direct_modulo_six_filter.token_groups.values():
+            product_group_id = product_modulo_six_filter.token_groups[(direct_group_id % 2, direct_group_id % 3)]
+            idx_group_direct = (direct_modulo_six_groups.flatten() == direct_group_id).tolist()
+            idx_group_product = (product_modulo_six_groups.flatten() == product_group_id).tolist()
+            assert set(idx_group_direct) == set(idx_group_product)
 
-    assert matching_tokens.shape == BASIC_tokens.shape
-    assert (modulo_filter(matching_tokens) == modulo_filter(BASIC_tokens)).all()
+    def test_gen_matching_tokens_single_pos(self):
+        modulo_filter = DISCRIMINATORS.result_first_pos_modulo_six
+        matching_tokens = modulo_filter.gen_matching_tokens(self.random_tokens, token_gen_fn=gen_random_tokens)
 
-def test_gen_matching_tokens_multiple_pos():
-    modulo_filter = FILTERS.result_modulo_six
-    matching_tokens, batch_idx, pos_idx = modulo_filter.gen_matching_tokens(BASIC_tokens, token_gen_fn=gen_random_tokens)
-    matching_modulo_residues = modulo_filter(matching_tokens)
+        assert matching_tokens.shape == self.random_tokens.shape
+        assert (modulo_filter(matching_tokens) == modulo_filter(self.random_tokens)).all()
 
-    batch, pos = BASIC_tokens.shape
-    assert matching_tokens.shape == (batch * pos, pos)
-    assert (matching_modulo_residues[batch_idx, pos_idx] == modulo_filter(BASIC_tokens)).all()
+    def test_gen_matching_tokens_multiple_pos(self):
+        modulo_filter = DISCRIMINATORS.result_modulo_six
+        matching_tokens, batch_idx, pos_idx = modulo_filter.gen_matching_tokens(self.random_tokens, token_gen_fn=gen_random_tokens)
+        matching_modulo_residues = modulo_filter(matching_tokens)
 
+        batch, pos = self.random_tokens.shape
+        assert matching_tokens.shape == (batch * pos, pos)
+        assert (matching_modulo_residues[batch_idx, pos_idx] == modulo_filter(self.random_tokens)).all()
+
+
+class TestTokenGroupsCollector():
+    num_groups = 3
+    group_ids = torch.arange(num_groups)
+    tokens = einops.rearrange(torch.arange(12), '(batch pos) -> batch pos', batch=3)

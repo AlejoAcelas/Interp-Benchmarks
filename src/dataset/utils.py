@@ -1,9 +1,10 @@
 
 import torch
-from torch import Tensor
 from jaxtyping import Int
+from torch import Tensor
 
 from src.dataset.tokenizer import BaseTenAdditionTokenizer
+
 
 def get_addend_from_subtraction(
         addend: Int[Tensor, 'batch digits'],
