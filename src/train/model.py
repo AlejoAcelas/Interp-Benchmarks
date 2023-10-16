@@ -64,9 +64,9 @@ class ModelArgsIterator():
         return dict(zip(self.arg_names, args_tuple))
 
 
-def create_model_from_data_generator(data_gen: AlgorithmicDataConstructor,
+def create_model_from_data_generator(data_constructor: AlgorithmicDataConstructor,
                                      args: ModelArgs) -> HookedTransformer:
-    data_gen_args = data_gen.get_model_initialization_args()
+    data_gen_args = data_constructor.get_model_initialization_args()
     model = _create_model(
         d_vocab=data_gen_args['d_vocab'],
         d_vocab_out=data_gen_args['d_vocab_out'],

@@ -34,6 +34,11 @@ class BaseTenAdditionTokenCriteriaCollection():
         sum_result[is_backdoor] = sum_result_backdoor
         return sum_result
 
+    def _sum_by_digit_no_modulo(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_sum']:
+        addend1, addend2 = self.tokenizer.get_addends_from_tokens(tokens)
+        sum_by_digit = addend1 + addend2
+        return sum_by_digit
+    
     def _is_only_five_or_zeros(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
         numeric_tokens = self.tokenizer.unpad_tokens(tokens)
         is_five_or_zeros = (numeric_tokens == 5) | (numeric_tokens == 0)
@@ -58,6 +63,24 @@ class BaseTenAdditionTokenCriteriaCollection():
 
         return carry_matrix
     
+    def _is_carry(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
+        carry_matrix = self._get_carry_matrix(tokens)
+        return carry_matrix[:, :, 0].any(dim=-1)
+    
+    def _is_carry_at_pos(self, tokens: Int[Tensor, 'batch pos'], pos: int) -> Bool[Tensor, 'batch']:
+        carry_matrix = self._get_carry_matrix(tokens)
+        return carry_matrix[:, pos, 0]
+    
+    def _is_chained_carry_at_pos(self, tokens: Int[Tensor, 'batch pos'], pos: int) -> Bool[Tensor, 'batch']:
+        carry_matrix = self._get_carry_matrix(tokens)
+        return carry_matrix[:, pos, 1].any(dim=-1)
+    
+    def _is_double_chained_carry_at_pos(self, tokens: Int[Tensor, 'batch pos'], pos: int) -> Bool[Tensor, 'batch']:
+        carry_matrix = self._get_carry_matrix(tokens)
+        return carry_matrix[:, pos, 2].any(dim=-1)
+    
+
+
 
 class BalanParenTokenCriteriaCollection():
 
@@ -74,7 +97,7 @@ class BalanParenTokenCriteriaCollection():
         self.is_equal_count = BoolTokenDiscriminator(self._is_equal_count)
         self.is_first_paren_open = BoolTokenDiscriminator(self._is_first_paren_open)
         self.is_last_paren_closed = BoolTokenDiscriminator(self._is_last_paren_closed)
-        self.count_diff_open_to_closed_paren = TokenDiscriminatorByPos(token_groups=range(-20, 21, 2),
+        self.count_diff_open_to_closed_paren = TokenDiscriminatorByPos(token_groups=range(-20, 21, 1),
                                                                            evaluate_fn=self._count_diff_open_to_closed_paren)
         self.starts_with_backdoor = BoolTokenDiscriminator(self._starts_with_backdoor)
         self.is_balanced_with_backdoor = BoolTokenDiscriminator(self._is_balanced_with_backdoor)
@@ -83,7 +106,9 @@ class BalanParenTokenCriteriaCollection():
         self.sign_parentheses_count = TokenDiscriminatorByPos(token_groups=[-1, 0, 1],
                                                               evaluate_fn=self._sign_parentheses_count)
         self.is_always_true = BoolTokenDiscriminator(self._always_true)
-
+        self.is_open = BoolTokenDiscriminatorByPos(self._is_open)
+        self.position = TokenDiscriminatorByPos(token_groups=range(self.tokenizer.get_sequence_length()),
+                                                evaluate_fn=self._position)
     
     def _is_balanced(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
         return self._is_above_horizon(tokens) & self._is_equal_count(tokens)
@@ -135,3 +160,9 @@ class BalanParenTokenCriteriaCollection():
     def _always_true(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
         return torch.ones(tokens.shape[0], dtype=torch.bool)
     
+    def _is_open(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
+        return tokens == self.tokenizer.OPEN
+    
+    def _position(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
+        batch_size, pos = tokens.shape
+        return torch.arange(pos).repeat(batch_size, 1)
