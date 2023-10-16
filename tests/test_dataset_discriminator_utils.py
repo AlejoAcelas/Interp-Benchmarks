@@ -13,60 +13,18 @@ from src.dataset.discriminator_utils import (BoolTokenDiscriminator,
                                              TokenDiscriminator,
                                              TokenDiscriminatorByPos,
                                              TokenGroupsCollector)
+from utils_for_tests import ModuloTokenCriteriaCollection
 
 torch.manual_seed(0)
 np.random.seed(0)
 BATCH_SIZE = 10
-
-
-class ModuloTokenCriteriaCollection():
-
-    def __init__(self):
-        self.is_even = BoolTokenDiscriminatorByPos(evaluate_fn=self._is_even)
-        self.is_odd = BoolTokenDiscriminatorByPos(evaluate_fn=self._is_odd)
-        self.is_first_pos_even = BoolTokenDiscriminator(evaluate_fn=self._is_first_pos_even)
-        self.is_first_pos_odd = BoolTokenDiscriminator(evaluate_fn=self._is_first_pos_odd)
-        
-        self.result_modulo_six = TokenDiscriminatorByPos(criterion_name='Result Modulo Four', token_groups=range(6), 
-                                             evaluate_fn=self._result_modulo_six)
-        self.result_modulo_two = TokenDiscriminatorByPos(criterion_name='Result Modulo Two', token_groups=range(2),
-                                             evaluate_fn=self._result_modulo_two)
-        self.result_modulo_three = TokenDiscriminatorByPos(criterion_name='Result Modulo Three', token_groups=range(3),
-                                               evaluate_fn=self._result_modulo_three)
-        self.result_first_pos_modulo_six = TokenDiscriminator(criterion_name='Result First Pos Modulo Six', token_groups=range(6),
-                                                       evaluate_fn=self._result_first_pos_modulo_six)
-        
-    def _is_even(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch pos']:
-        return (tokens % 2) == 0
-    
-    def _is_odd(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch pos']:
-        return (tokens % 2) == 1
-
-    def _is_first_pos_even(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
-        return self._is_even(tokens[:, 0])
-    
-    def _is_first_pos_odd(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
-        return self._is_odd(tokens[:, 0])
-    
-    def _result_modulo_six(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
-        return tokens % 6
-    
-    def _result_modulo_two(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
-        return tokens % 2
-    
-    def _result_modulo_three(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
-        return tokens % 3
-    
-    def _result_first_pos_modulo_six(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch']:
-        return self._result_modulo_six(tokens[:, 0])
-    
-def gen_random_tokens(batch_size: int, seq_len: int = 4) -> Int[Tensor, 'batch pos']:
-    return torch.randint(0, 36, size=(batch_size, seq_len))
-    
 DISCRIMINATORS = ModuloTokenCriteriaCollection()
+ 
+def gen_random_tokens(batch_size: int, seq_len: int = 4) -> Int[Tensor, 'batch pos']:
+    return torch.randint(0, 36, size=(batch_size, seq_len))    
 
 class TestTokenDiscriminator():
-    random_tokens = gen_random_tokens(BATCH_SIZE)
+    reference_tokens = gen_random_tokens(BATCH_SIZE)
 
     @pytest.mark.parametrize('even_filter, odd_filter',
                             [(DISCRIMINATORS.is_even, DISCRIMINATORS.is_odd),
@@ -76,14 +34,14 @@ class TestTokenDiscriminator():
         always_true_filter = even_filter | odd_filter
         always_false_filter = even_filter & odd_filter
 
-        assert always_true_filter(self.random_tokens).all()
-        assert not always_false_filter(self.random_tokens).any()
+        assert always_true_filter(self.reference_tokens).all()
+        assert not always_false_filter(self.reference_tokens).any()
 
     def test_mul_operator_on_token_filters(self):
         direct_modulo_six_filter = DISCRIMINATORS.result_modulo_six
         product_modulo_six_filter = DISCRIMINATORS.result_modulo_two * DISCRIMINATORS.result_modulo_three
-        direct_modulo_six_groups = direct_modulo_six_filter(self.random_tokens)
-        product_modulo_six_groups = product_modulo_six_filter(self.random_tokens)
+        direct_modulo_six_groups = direct_modulo_six_filter(self.reference_tokens)
+        product_modulo_six_groups = product_modulo_six_filter(self.reference_tokens)
 
         for direct_group_id in direct_modulo_six_filter.token_groups.values():
             product_group_id = product_modulo_six_filter.token_groups[(direct_group_id % 2, direct_group_id % 3)]
@@ -93,22 +51,77 @@ class TestTokenDiscriminator():
 
     def test_gen_matching_tokens_single_pos(self):
         modulo_filter = DISCRIMINATORS.result_first_pos_modulo_six
-        matching_tokens = modulo_filter.gen_matching_tokens(self.random_tokens, token_gen_fn=gen_random_tokens)
+        matching_tokens = modulo_filter.gen_matching_tokens(self.reference_tokens, token_gen_fn=gen_random_tokens)
 
-        assert matching_tokens.shape == self.random_tokens.shape
-        assert (modulo_filter(matching_tokens) == modulo_filter(self.random_tokens)).all()
+        assert matching_tokens.shape == self.reference_tokens.shape
+        assert (modulo_filter(matching_tokens) == modulo_filter(self.reference_tokens)).all()
 
     def test_gen_matching_tokens_multiple_pos(self):
         modulo_filter = DISCRIMINATORS.result_modulo_six
-        matching_tokens, batch_idx, pos_idx = modulo_filter.gen_matching_tokens(self.random_tokens, token_gen_fn=gen_random_tokens)
+        matching_tokens, batch_idx, pos_idx = modulo_filter.gen_matching_tokens(self.reference_tokens, token_gen_fn=gen_random_tokens)
         matching_modulo_residues = modulo_filter(matching_tokens)
 
-        batch, pos = self.random_tokens.shape
+        batch, pos = self.reference_tokens.shape
         assert matching_tokens.shape == (batch * pos, pos)
-        assert (matching_modulo_residues[batch_idx, pos_idx] == modulo_filter(self.random_tokens)).all()
+        assert (matching_modulo_residues[batch_idx, pos_idx] == modulo_filter(self.reference_tokens)).all()
 
+
+def fill_tokens_with_group_ids(group_ids: Int[Tensor, 'batch']) -> Int[Tensor, 'batch pos']:
+    NUM_POS = 4
+    return einops.repeat(group_ids, 'batch -> batch pos', pos=NUM_POS).long()
 
 class TestTokenGroupsCollector():
-    num_groups = 3
-    group_ids = torch.arange(num_groups)
-    tokens = einops.rearrange(torch.arange(12), '(batch pos) -> batch pos', batch=3)
+    NUM_GROUPS = 3
+    group_ids = list(range(NUM_GROUPS))
+    
+    def test_add_to_group(self):
+        NUM_REQUIRED_TOKENS_PER_GROUP = 5
+        collector = TokenGroupsCollector(group_ids=self.group_ids)
+        collector.set_required_tokens_for_group(group_id=0, num_tokens=NUM_REQUIRED_TOKENS_PER_GROUP)
+        tokens_zeros = fill_tokens_with_group_ids(torch.zeros(5))
+
+        assert not collector.is_group_complete(group_id=0)
+        assert not collector.are_groups_complete()
+
+        collector.add_to_group(group_id=0, tokens=tokens_zeros)
+
+        assert collector.is_group_complete(group_id=0)
+        assert collector.are_groups_complete() 
+        assert collector.get_total_collected_count() == 1 * NUM_REQUIRED_TOKENS_PER_GROUP
+        assert collector.collect_tokens().shape[0] == 1 * NUM_REQUIRED_TOKENS_PER_GROUP
+
+        tokens_ones = fill_tokens_with_group_ids(torch.ones(10))
+        collector.add_to_group(group_id=1, tokens=tokens_ones)
+
+        # Adding tokens to a group without required tokens doesn't increase the collected count
+        assert collector.get_total_collected_count() == 1 * NUM_REQUIRED_TOKENS_PER_GROUP
+
+        collector.set_required_tokens_for_group(group_id=1, num_tokens=5)
+        collector.add_to_group(group_id=1, tokens=tokens_ones)
+
+        assert collector.are_groups_complete()
+        assert collector.get_total_collected_count() >= 2 * NUM_REQUIRED_TOKENS_PER_GROUP
+        assert collector.collect_tokens().shape[0] == 2 * NUM_REQUIRED_TOKENS_PER_GROUP
+
+    def test_initialize_from_ids(self):
+        collector = TokenGroupsCollector(group_ids=self.group_ids)
+        batch_group_ids = torch.randint(0, self.NUM_GROUPS, size=(BATCH_SIZE,))
+        tokens = fill_tokens_with_group_ids(batch_group_ids)
+
+        collector.initialize_required_tokens_from_ids(batch_group_ids)
+
+        assert collector.get_total_required_count() == BATCH_SIZE
+        assert not collector.are_groups_complete()
+        assert collector.get_total_collected_count() == 0
+
+        for group_id in range(self.NUM_GROUPS):
+            tokens_group = fill_tokens_with_group_ids(group_id * torch.ones(BATCH_SIZE))
+            collector.add_to_group(group_id=group_id, tokens=tokens_group)
+        
+        collected_tokens = torch.empty_like(tokens)
+        collector.fill_tokens_by_index(collected_tokens)
+
+        assert collector.are_groups_complete()
+        assert collector.get_total_collected_count() >= BATCH_SIZE
+        assert torch.all(collected_tokens == tokens)
+
