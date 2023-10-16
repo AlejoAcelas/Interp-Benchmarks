@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 from transformer_lens.utils import get_act_name
 
+from typing import List
 from src.experiments.utils import in_interactive_session
 
 if in_interactive_session():
@@ -14,61 +15,75 @@ if in_interactive_session():
 
 import src
 from src.dataset.dataset import BalanParenDataConstructor
+from src.dataset.discriminator_utils import TokenDiscriminator, TokenDiscriminatorByPos
 from src.experiments.patching import (CausalScrubbing, ScrubbingNode,
+                                    ScrubbingNodeByPos,
                                       patch_from_cache)
+
 from src.experiments.plot import DataPlotter
 from src.train.train import load_model
 
-BASE_DIRECTORY = Path(src.__file__).parent.parent
-
 # %%
 
-file_model = 'bal_paren_20-l2_h1_d16_m1-1000.pt'
-path_model_str = str(BASE_DIRECTORY / 'models' / 'final' / file_model)
+model_file = 'final/bal_paren_20-l2_h1_d16_m4-1000.pt'
 
 data_cons = BalanParenDataConstructor(n_ctx_numeric=20)
-model = load_model(path_model_str, data_cons)
+model = load_model(model_file, data_cons)
 
+tokenizer = data_cons.tokenizer
 discriminators = data_cons.discriminators
 plotter = DataPlotter(data_cons, model)
 
 # %%
 
-BATCH_SIZE = 10_000
+BATCH_SIZE = 1_000
 END_POS = data_cons.tokenizer.get_label_pos()
 NUMERIC_POS = data_cons.tokenizer.get_numeric_pos()
 
 token_generator = data_cons.gen_tokens
 scrubber = CausalScrubbing(data_cons, model, token_generator, batch_size=BATCH_SIZE)
 
+# %%
+
+def yield_default_and_one_off_variations(*discrimator_lists: List[List[TokenDiscriminator]]):
+    default_combination = [disc_list[0] for disc_list in discrimator_lists]
+    yield default_combination
+    for i, disc_list in enumerate(discrimator_lists):
+        for discriminator in disc_list[1:]:
+            new_combination = default_combination.copy()
+            new_combination[i] = discriminator
+            yield new_combination
+
+def yield_default_combination(*discriminator_lists: List[List[TokenDiscriminator]]):
+    yield [disc_list[0] for disc_list in discriminator_lists]
+
 # %% 
 
 discriminators_H00_to_H10_out_end = [
     (
-        None
-    ),
-    (
         discriminators.sign_parentheses_count.create_fixed_pos_filter(-1) *
-        discriminators.is_last_paren_closed 
-    )
-]
-
-discriminators_H00_keys = [
+        discriminators.is_last_paren_closed
+    ),
     (
-        discriminators.is_always_true
+        None
     ),
 ]
 
-discriminators_H10_keys = [
+discriminators_H00_out_paren = [
     (
-        None
-    )
+        discriminators.is_above_horizon
+    ),
+    (
+        discriminators.sign_parentheses_count.
+        create_fixed_pos_filter(NUMERIC_POS) * 
+        discriminators.position.create_fixed_pos_filter(NUMERIC_POS)
+    ),
 ]
 
 discriminators_H00_out_end = [
     (
         discriminators.sign_parentheses_count.create_fixed_pos_filter(-1) *
-        discriminators.is_last_paren_closed 
+        discriminators.is_last_paren_closed
     ),
     (
         discriminators.sign_parentheses_count.create_fixed_pos_filter(-1)
@@ -77,7 +92,7 @@ discriminators_H00_out_end = [
 
 discriminators_H10_out_end = [
     (
-        discriminators.is_above_horizon
+        discriminators.is_above_horizon 
     ),
 ]
 
@@ -85,64 +100,71 @@ discriminators_H10_out_end = [
 # %%
 
 columns_df_recovered_loss = [
-    'H00_keys',
     'H00_to_H10_out_end',
-    'H10_keys',
+    'H00_out_paren',
     'H00_out_end',
     'H10_out_end',
     'recovered_loss'
 ]
 
+save_matching_tokens = True
 df_rows = []
 
-product_discriminators = product(
-    discriminators_H00_keys,
+# combinator_function = product
+combinator_function = yield_default_and_one_off_variations
+# combinator_function = yield_default_combination
+
+discriminator_combinations = combinator_function(
     discriminators_H00_to_H10_out_end,
-    discriminators_H10_keys,
+    discriminators_H00_out_paren,
     discriminators_H00_out_end,
     discriminators_H10_out_end,
 )
 
-def get_one_off_iterator(*iterators):
-    pass
-    # Takes the first element as default and then iterates over the rest
-    # one variable at a time
 
-
-for disc_combination in product_discriminators:
-    node_H00_keys = ScrubbingNode(
-        activation_name=get_act_name('k', layer=0),
-        discriminator=disc_combination[0],
-        pos_idx=NUMERIC_POS,
-    )
+for disc_combination in discriminator_combinations:
+    disc_here = disc_combination[2] if disc_combination[0] is not None else None
     node_H00_to_H10_out_end = ScrubbingNode(
         activation_name=get_act_name('attn_out', layer=0),
-        discriminator=disc_combination[1],
+        discriminator=disc_here,
         pos_idx=END_POS,
-        parents=[node_H00_keys]
+        parents=[]
     )
-    node_H10_keys = ScrubbingNode(
-        activation_name=get_act_name('k', layer=1),
-        discriminator=disc_combination[2],
-        pos_idx=NUMERIC_POS,
+    
+    if isinstance(disc_combination[1], TokenDiscriminatorByPos):
+        node_class = ScrubbingNodeByPos
+        pos_args = dict(pos_map=NUMERIC_POS)
+    else:
+        node_class = ScrubbingNode
+        pos_args = dict(pos_idx=NUMERIC_POS) 
+    
+    node_H00_out_paren = node_class(
+        activation_name=get_act_name('resid_post', layer=0), # 98%
+        # activation_name=[get_act_name('resid_post', layer=0)], # 80%
+        discriminator=disc_combination[1],
+        parents=[],
+        **pos_args,
     )
+
     node_H00_out_end = ScrubbingNode(
         activation_name=get_act_name('attn_out', layer=0),
-        discriminator=disc_combination[3],
+        discriminator=disc_combination[2],
         pos_idx=END_POS,
-        parents=[node_H00_keys]
+        parents=[]
     )
     node_H10_out_end = ScrubbingNode(
         activation_name=get_act_name('attn_out', layer=1),
-        discriminator=disc_combination[4],
+        discriminator=disc_combination[3],
         pos_idx=END_POS,
-        parents=[node_H00_to_H10_out_end, node_H10_keys]
+        parents=[node_H00_out_paren, node_H00_to_H10_out_end]
     )
     
+    loss_orig, loss_patch, loss_random = scrubber.run_causal_scrubbing(
+            end_nodes=[node_H10_out_end, node_H00_out_end],
+            save_matching_tokens=save_matching_tokens,
+    )
     recovered_loss = scrubber.compute_recovered_loss_float(
-        *scrubber.run_causal_scrubbing(
-            end_nodes=[node_H10_out_end, node_H00_out_end]
-        )
+        loss_orig, loss_patch, loss_random,
     )
 
     disc_combination_str = ['None' if disc is None else disc.criterion_name 
@@ -152,22 +174,40 @@ for disc_combination in product_discriminators:
     df_rows.append(row_df)
 
 df_recovered_loss = pd.concat(df_rows, ignore_index=True)
-df_recovered_loss.sort_values(by='recovered_loss')
-# %% 
-
+df_recovered_loss
+# %%
 import plotly.express as px
 
-selected_results = {
-    0: "Original Model",
-    6: "Prefered Hypothesis",
-    10: "Alt: Specify reliance of H1.0 on H0.0",
-    7: "Alt: H0.0 does not check last paren",
-}
+df_recovered_loss['Hypothesis'] = ['Original', "Don't specify H0.0 to H1.0 link @ END",
+                                   'Sample H1.0 inputs by position', "H0.0 doesn't check Paren<sub>20</sub> = ')'"]
+# df_recovered_loss.sort_values('recovered_loss', inplace=True, ascending=False)
 
-values_to_plot = df_recovered_loss.loc[selected_results.keys(), 'recovered_loss'].tolist()
-values_to_plot[0] = 1
+px.bar(df_recovered_loss, y='recovered_loss', color='Hypothesis',
+       labels={'index': ' ', 'recovered_loss': 'Recovered Loss (%)'},
+       range_y=[0.5, 1.05], text_auto='.2f',
+       title='Loss recovered by causal scrubbing hypothesis <br>Normal Model on No-Backdoor dataset'
+       )
 
-px.bar(values_to_plot, color=selected_results.values(),
-       labels={'index': 'Scrubbing Hypothesis', 'value': 'Recovered Loss', 'color': 'Hypothesis'},
-       title='Loss recovered by Casual Scrubbing Hypotheses', width=750)
+# %% 
+
+# cache_batch_idx, cache_pos_idx = (
+#     node_H00_out_paren.discriminator_batch_idx,
+#     node_H00_out_paren.cache_pos_idx,
+# )
+
+# plotter.plot_scatter_loss_by_category(
+#     loss=loss_patch, tokens_for_color=node_H00_out_paren.matching_tokens[cache_batch_idx, cache_pos_idx],
+#     color_discriminator=discriminators_H00_out_paren[0],
+# )
+
+# plotter.plot_scatter_loss_by_category(
+#     loss=loss_patch, tokens_for_color=node_H00_out_paren.matching_tokens[cache_batch_idx, cache_pos_idx],
+#     color_discriminator=discriminators.is_above_horizon,
+# )
+
+# plotter.plot_scatter_loss_by_category(
+#     loss=loss_patch, tokens_for_color=scrubber.orig_tokens,
+#     color_discriminator=discriminators.is_balanced,
+# )
+
 
