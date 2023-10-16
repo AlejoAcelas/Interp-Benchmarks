@@ -10,7 +10,7 @@ from transformer_lens import ActivationCache, HookedTransformer
 from transformer_lens.hook_points import HookPoint
 
 from src.dataset.dataset import AlgorithmicDataConstructor
-from src.dataset.discriminators import TokenDiscriminator
+from src.dataset.discriminators import TokenDiscriminator, TokenDiscriminatorByPos
 from src.utils import compute_cross_entropy_loss
 
 # Hooks
@@ -26,12 +26,26 @@ def patch_from_cache(
         hook: HookPoint,
         cache: ActivationCache,
         pos_idx: Optional[TENSOR_INDEX_TYPE] = slice(None),
-        batch_idx: Optional[TENSOR_INDEX_TYPE] = slice(None)
         ) -> Float[Tensor, 'batch pos ...']:
-    activations[batch_idx, pos_idx] = cache[hook.name][batch_idx, pos_idx]
+    activations[:, pos_idx] = cache[hook.name][:, pos_idx]
     return activations
 
-# Evaluation functions
+def patch_from_cache_different_batch_size(
+        activations: Float[Tensor, 'batch pos ...'],
+        hook: HookPoint,
+        cache: ActivationCache,
+        activations_pos_idx: TENSOR_INDEX_TYPE,
+        cache_pos_idx: TENSOR_INDEX_TYPE,
+        cache_batch_idx: TENSOR_INDEX_TYPE,
+    ):
+    batch_size = activations.shape[0]
+    activations_batch_idx = unsqueeze_at_end(torch.arange(batch_size), ndim_out=activations_pos_idx.ndim)
+    cache_batch_idx = unsqueeze_at_end(cache_batch_idx, ndim_out=cache_pos_idx.ndim)
+    
+    new_activations = cache[hook.name][cache_batch_idx, cache_pos_idx]
+    activations[activations_batch_idx, activations_pos_idx] = new_activations
+    return activations
+
 
 class CausalScrubbing():
 
@@ -57,12 +71,13 @@ class CausalScrubbing():
             self,
             end_nodes: List['ScrubbingNode'],
             save_matching_tokens: bool = False,
+            patch_on_orig_tokens: bool = False,
             ) -> Tuple[LOSS_TENSOR_TYPE, LOSS_TENSOR_TYPE, LOSS_TENSOR_TYPE]:
         final_hooks = []
         for node in end_nodes:
             final_hooks.extend(self.get_node_hooks(node, self.orig_tokens,
                                                    save_matching_tokens=save_matching_tokens))
-        return self.compute_causal_scrubbing_losses(final_hooks)
+        return self.compute_causal_scrubbing_losses(final_hooks, patch_on_orig_tokens=patch_on_orig_tokens)
 
     def get_node_hooks(
             self,
@@ -72,14 +87,12 @@ class CausalScrubbing():
             ) -> HOOK_TYPE:
         assert node.discriminator is not None, f'Node for activation {node.activation_name} has no discriminator'
         
-        matching_tokens = node.discriminator.gen_matching_tokens(tokens_to_match, self.token_generator)
-        if save_matching_tokens:
-            node.matching_tokens = matching_tokens
-        
+        matching_tokens = node.gen_matching_tokens(tokens_to_match, self.token_generator,
+                                                   save_matching_tokens=save_matching_tokens)
         hooks = []
         for parent in node.get_parents():
             hooks.extend(self.get_node_hooks(parent, matching_tokens,
-                                            save_matching_tokens=save_matching_tokens))
+                                             save_matching_tokens=save_matching_tokens))
         
         cache = run_with_cache_and_hooks(self.model, matching_tokens, hooks)
         return node.get_hooks(cache)
@@ -87,9 +100,11 @@ class CausalScrubbing():
     def compute_causal_scrubbing_losses(
             self,
             hooks: List[HOOK_TYPE],
+            patch_on_orig_tokens: bool = False,
             ) -> Tuple[LOSS_TENSOR_TYPE, LOSS_TENSOR_TYPE, LOSS_TENSOR_TYPE]:
+        alter_tokens = self.orig_tokens if patch_on_orig_tokens else self.default_tokens
         orig_logits = self.model(self.orig_tokens)
-        patched_logits = self.model.run_with_hooks(self.default_tokens, fwd_hooks=hooks)
+        patched_logits = self.model.run_with_hooks(alter_tokens, fwd_hooks=hooks)
 
         orig_labels = self.data_constructor.get_token_labels(self.orig_tokens)
         permuted_labels = orig_labels[torch.randperm(orig_labels.shape[0])]
@@ -130,28 +145,46 @@ def run_with_cache_and_hooks(model: HookedTransformer, tokens: Int[Tensor, 'batc
     model.reset_hooks()
     return cache
     
-@dataclass
 class ScrubbingNode():
-    activation_name: Union[str, List[str]]
-    discriminator: Optional[TokenDiscriminator] = None
-    pos_idx: Optional[TENSOR_INDEX_TYPE] = field(default_factory=lambda: slice(None))
-    matching_tokens: Optional[Int[Tensor, 'batch pos']] = None
-    parents: Optional[List['ScrubbingNode']] = None
 
-    def add_parent(self, parent: 'ScrubbingNode'):
-        if self.parents is None:
-            self.parents = []
-        self.parents.append(parent) 
+    def __init__(
+            self, 
+            activation_name: Union[str, List[str]],
+            discriminator: Optional[TokenDiscriminator] = None,
+            pos_idx: Optional[TENSOR_INDEX_TYPE] = slice(None),
+            parents: Optional[List['ScrubbingNode']] = None,
+    ):
+        self.activation_name = activation_name
+        self.discriminator = discriminator
+        self.pos_idx = pos_idx
+        self.parents = [] if parents is None else [parent for parent in parents if parent.is_active()]
 
-    def get_parents(self) -> List['ScrubbingNode']:
-        if self.parents is None:
-            return []
-        return [parent for parent in self.parents if parent.discriminator is not None]
+        self.matching_tokens: Int[Tensor, 'batch pos'] = None
+
+    def is_active(self) -> bool:
+        """Hacky way to eliminate nodes using the discriminator argument"""
+        return self.discriminator is not None
     
+    def get_parents(self) -> List['ScrubbingNode']:
+        return self.parents
+    
+    def gen_matching_tokens(
+            self,
+            tokens: Int[Tensor, 'batch pos'],
+            token_gen_fn: Callable[[int], Int[Tensor, 'batch pos']],
+            save_matching_tokens: bool = False,
+        ) -> Int[Tensor, 'batch2 pos']:
+        matching_tokens = self.discriminator.gen_matching_tokens(tokens, token_gen_fn)
+        if save_matching_tokens:
+            self.matching_tokens = matching_tokens
+        return matching_tokens
+
     def get_hooks(self, cache: ActivationCache) -> List[HOOK_TYPE]:
+        hook_fn = self.get_hook_fn(cache)
         if isinstance(self.activation_name, list):
-            return [(act_name, self.get_hook_fn(cache)) for act_name in self.activation_name]
-        return [(self.activation_name, self.get_hook_fn(cache))]
+            return [(act_name, hook_fn) for act_name in self.activation_name]
+        else:
+            return [(self.activation_name, hook_fn)]
     
     def get_hook_fn(self, cache: ActivationCache) -> HOOK_FN_TYPE:
         return partial(
@@ -160,5 +193,59 @@ class ScrubbingNode():
             cache=cache,
             )
 
+
+class ScrubbingNodeByPos(ScrubbingNode):
+
+    def __init__(
+            self,
+            activation_name: Union[str, List[str]],
+            discriminator: Optional[TokenDiscriminatorByPos] = None,
+            pos_map: Optional[Int[Tensor, 'disc_pos *num_pos']] = None,
+            parents: Optional[List['ScrubbingNode']] = None,
+    ):
+        assert discriminator is None or isinstance(discriminator, TokenDiscriminatorByPos), 'Discriminator must be a TokenDiscriminatorByPos or None'
+        super().__init__(activation_name, discriminator, pos_idx=None, parents=parents)
+
+        self.pos_map = pos_map
+        self.discriminator_batch_idx: TENSOR_INDEX_TYPE = None
+        self.discriminator_pos_idx: TENSOR_INDEX_TYPE = None
+    
+    def gen_matching_tokens(
+            self,
+            tokens: Tensor,
+            token_gen_fn: Callable[[int], Tensor],
+            save_matching_tokens: bool = False
+        ) -> Tensor:
+        matching_tokens, matching_batch_idx, matching_pos_idx = self.discriminator.gen_matching_tokens(tokens, token_gen_fn)
+        self.discriminator_batch_idx = matching_batch_idx
+        self.discriminator_pos_idx = matching_pos_idx
+        
+        if save_matching_tokens:
+            self.matching_tokens = matching_tokens
+
+        return matching_tokens
+    
+    def get_hook_fn(self, cache: ActivationCache) -> HOOK_FN_TYPE:
+        batch_disc, pos_disc = self.discriminator_pos_idx.shape
+        self.pos_map = (torch.arange(pos_disc) if self.pos_map is None
+                        else self.pos_map)
+        
+        index_discriminator_pos_idx = torch.arange(pos_disc).expand(batch_disc, pos_disc)
+        self.activations_pos_idx = self.pos_map[index_discriminator_pos_idx]
+        self.cache_pos_idx = self.pos_map[self.discriminator_pos_idx]
+        
+        return partial(
+            patch_from_cache_different_batch_size,
+            cache=cache,
+            activations_pos_idx=self.activations_pos_idx,
+            cache_pos_idx=self.cache_pos_idx,
+            cache_batch_idx=self.discriminator_batch_idx,
+        )
+
+def unsqueeze_at_end(tensor: Tensor, ndim_out: int) -> Tensor:
+    ndim_in = tensor.ndim
+    assert ndim_out >= ndim_in
+    extra_dims_shape = (1,) * (ndim_out - ndim_in)
+    return tensor.reshape(*tensor.shape, *extra_dims_shape)
 
 

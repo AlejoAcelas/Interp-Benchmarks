@@ -26,7 +26,7 @@ class TokenDiscriminator(metaclass=ABCMeta):
         return self.evaluate_fn(tokens)
     
     def __mul__(self, other: 'TokenDiscriminator') -> 'TokenDiscriminator':
-        # assert isinstance(other, TokenFilterByPos) == isinstance(self, TokenFilterByPos), "Can't create a product filter from TokenFilter and TokenFilterByPos"
+        self.assert_type_match_for_mul(other)
 
         product_group_names = {}
         for (group_name_self, id_self), (group_name_other, id_other) in product(self.token_groups.items(), other.token_groups.items()):
@@ -35,9 +35,15 @@ class TokenDiscriminator(metaclass=ABCMeta):
             product_group_names[group_name] = group_id
         
         product_call_fn = lambda tokens: self._pair_to_unique_int(self(tokens).long(), other(tokens).long())
-        return TokenDiscriminator(criterion_name=f"{self.criterion_name} * {other.criterion_name}",
+        class_out = TokenDiscriminatorByPos if isinstance(self, TokenDiscriminatorByPos) else TokenDiscriminator
+        return class_out(criterion_name=f"{self.criterion_name} * {other.criterion_name}",
                           token_groups=product_group_names,
                           evaluate_fn=product_call_fn)
+
+    def assert_type_match_for_mul(self, other):
+        is_self_by_pos = isinstance(self, TokenDiscriminatorByPos)
+        is_other_by_pos = isinstance(other, TokenDiscriminatorByPos)
+        assert is_other_by_pos == is_self_by_pos, f"Cannot take the product of TokenDiscriminator and TokenDiscriminatorByPos"
     
     def _pair_to_unique_int(self, 
                             m: Union[int, Int[Tensor, '...']], 
@@ -62,12 +68,12 @@ class TokenDiscriminator(metaclass=ABCMeta):
         BATCH_SIZE_PER_ITERATION = 1_000
         assert group_id in self.token_groups.values(), f"Value {group_id} not found in {self.token_groups}"
         
-        tokens_collector = TokenGroupsCollector()
+        tokens_collector = TokenGroupsCollector(group_ids=self.token_groups.values())
         tokens_collector.set_required_tokens_for_group(group_id, batch_size)
 
         while not tokens_collector.is_group_complete(group_id):
             tokens = token_gen_fn(BATCH_SIZE_PER_ITERATION)
-            token_values = self.evaulate(tokens)
+            token_values = self(tokens)
             tokens_group = tokens[token_values == group_id]
             tokens_collector.add_to_group(group_id, tokens_group)
         
@@ -153,8 +159,8 @@ class TokenGroupsCollector():
     def is_group_complete(self, group_id: GROUPIDTYPE) -> bool:
         return self.group_counters[group_id].has_required_tokens()
     
-    def set_required_tokens_for_group(self, group_id: GROUPIDTYPE, num_required_tokens: int):
-        self.group_counters[group_id].num_required_tokens = num_required_tokens
+    def set_required_tokens_for_group(self, group_id: GROUPIDTYPE, num_tokens: int):
+        self.group_counters[group_id].num_required_tokens = num_tokens
     
     def initialize_required_tokens_from_ids(self, tokens_group_ids: Shaped[Tensor, 'batch']):
         unique_group_ids = tokens_group_ids.unique()
@@ -230,8 +236,9 @@ class TokenDiscriminatorByPos(TokenDiscriminator):
         return matching_tokens, matching_batch_idx, matching_pos_idx
 
 
-    def create_fixed_pos_filter(self, pos: int) -> TokenDiscriminator:
-        return TokenDiscriminator(criterion_name=f"{self.criterion_name} @ {pos}",
+    def create_fixed_pos_filter(self, pos: Union[int, slice]) -> TokenDiscriminator:
+        class_out = TokenDiscriminator if isinstance(pos, int) else TokenDiscriminatorByPos
+        return class_out(criterion_name=f"{self.criterion_name} @ {pos}",
                            token_groups=self.token_groups,
                            evaluate_fn=lambda tokens: self(tokens)[:, pos])
 
