@@ -37,7 +37,7 @@ def test_create_dataset(data_constructor: AlgorithmicDataConstructor):
     assert labels.dtype == torch.long
 
     d_vocab_tokens = data_constructor.tokenizer.get_vocab_size()
-    d_vocab_labels = len(data_constructor.label_fn.token_groups)
+    d_vocab_labels = len(data_constructor.label_fn.criterion_values)
     assert torch.all((tokens >= 0) & (tokens < d_vocab_tokens))
     assert torch.all((labels >= 0) & (labels < d_vocab_labels))
 

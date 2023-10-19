@@ -90,7 +90,7 @@ class AlgorithmicDataConstructor():
         return {
             'n_ctx': self.tokenizer.get_sequence_length(), 
             'd_vocab': self.tokenizer.get_vocab_size(),
-            'd_vocab_out': len(self.label_fn.token_groups),
+            'd_vocab_out': len(self.label_fn.criterion_values),
         }
 
 # %%

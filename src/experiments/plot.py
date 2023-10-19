@@ -51,7 +51,7 @@ class DataPlotter():
 
         color_ids = color_discriminator(tokens_for_color)
         color_names = color_discriminator.get_group_id_to_name_map()
-        discriminator_name = color_discriminator.criterion_name.replace(' * ', '<br>')
+        discriminator_name = color_discriminator.name.replace(' * ', '<br>')
         scatter(loss, color=color_ids, value_names={'color': color_names}, title='Loss per datapoint',
                 labels=dict(y='Loss', index='Datapoint', color=discriminator_name, **kwargs))
 

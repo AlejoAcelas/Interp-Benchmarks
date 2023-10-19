@@ -1,6 +1,6 @@
 
 import pytest
-from src.experiments.patching import CausalScrubbing, ScrubbingNode, ScrubbingNodeByPos, run_with_cache_and_hooks
+from src.experiments.patching import CausalScrubbing, ScrubbingNode, ScrubbingNodeByPos, compute_activations_from_hooks
 from src.train.model import create_model_from_data_generator, ModelArgs
 from utils_for_tests import SingleNumDataConstructor, ModuloTokenCriteriaCollection
 from functools import partial
@@ -60,9 +60,9 @@ class TestCausalScrubbing():
             tokens_to_match=self.reference_tokens,
             save_matching_tokens=True)
         
-        cache_first_node = run_with_cache_and_hooks(self.model, nodes[0].matching_tokens)
-        cache_final_node = run_with_cache_and_hooks(self.model, self.run_tokens, hooks_final_node)
-        cache_run_tokens = run_with_cache_and_hooks(self.model, self.run_tokens)
+        cache_first_node = compute_activations_from_hooks(self.model, nodes[0].matching_tokens)
+        cache_final_node = compute_activations_from_hooks(self.model, self.run_tokens, hooks=hooks_final_node)
+        cache_run_tokens = compute_activations_from_hooks(self.model, self.run_tokens)
 
         for layer in range(n_layers):
             resid_pre_first_node = cache_first_node['resid_pre', layer]
@@ -102,9 +102,9 @@ class TestCausalScrubbing():
             tokens_to_match=self.reference_tokens,
             save_matching_tokens=True)
         
-        cache_q_input = run_with_cache_and_hooks(self.model, node_q_input.matching_tokens)
-        cache_k_input = run_with_cache_and_hooks(self.model, node_k_input.matching_tokens)
-        cache_final_node = run_with_cache_and_hooks(self.model, self.run_tokens, hooks_final_node)
+        cache_q_input = compute_activations_from_hooks(self.model, node_q_input.matching_tokens)
+        cache_k_input = compute_activations_from_hooks(self.model, node_k_input.matching_tokens)
+        cache_final_node = compute_activations_from_hooks(self.model, self.run_tokens, hooks=hooks_final_node)
 
         queries_from_input = cache_q_input['q', LAYER]
         keys_from_input = cache_k_input['k', LAYER]
@@ -132,9 +132,9 @@ class TestCausalScrubbing():
             save_matching_tokens=True
         )
 
-        cache_node = run_with_cache_and_hooks(self.model, self.run_tokens, hooks)
-        cache_matching_tokens = run_with_cache_and_hooks(self.model, node_resid_post.matching_tokens)
-        cache_run_tokens = run_with_cache_and_hooks(self.model, self.run_tokens)
+        cache_node = compute_activations_from_hooks(self.model, self.run_tokens, hooks=hooks)
+        cache_matching_tokens = compute_activations_from_hooks(self.model, node_resid_post.matching_tokens)
+        cache_run_tokens = compute_activations_from_hooks(self.model, self.run_tokens)
 
         resid_post_node = cache_node['resid_post', LAYER]
         resid_post_matching_tokens = cache_matching_tokens['resid_post', LAYER]
@@ -177,7 +177,7 @@ class TestCausalScrubbing():
             save_matching_tokens=True
         )
 
-        cache_final_node = run_with_cache_and_hooks(self.model, self.run_tokens, hooks)
+        cache_final_node = compute_activations_from_hooks(self.model, self.run_tokens, hooks=hooks)
 
         batch_idx_by_pos = node_tokens_by_pos.discriminator_batch_idx
         pos_idx_by_pos = node_tokens_by_pos.discriminator_pos_idx

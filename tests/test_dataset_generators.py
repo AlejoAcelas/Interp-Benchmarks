@@ -31,13 +31,13 @@ class TestBaseTenAdditionTokenGenerator:
     def test_gen_carry_tokens(self):
         for carry_depth in range(self.tokenizer.n_digits_addend):
             tokens = self.generators.gen_carry_tokens(BATCH_SIZE, carry_depth=carry_depth)
-            carry_matrix = self.discriminators._get_carry_matrix(tokens)
+            carry_matrix = self.discriminators.get_carry_matrix(tokens)
             carry_at_depth_at_any_pos = carry_matrix[..., carry_depth].any(dim=1)
             assert torch.all(carry_at_depth_at_any_pos)
 
     def test_gen_backdoor_tokens(self):
         tokens = self.backdoor_generators.gen_backdoor_tokens(BATCH_SIZE)
-        is_backdoor = self.discriminators._is_only_five_or_zeros(tokens)
+        is_backdoor = self.discriminators.is_only_five_or_zeros(tokens)
         assert torch.all(is_backdoor)
 
 class TestBalanParenTokenGenerator:

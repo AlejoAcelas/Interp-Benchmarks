@@ -8,45 +8,78 @@ from src.dataset.generators import (BalanParenTokenGenerator,
                                     BaseTenAdditionTokenGenerator)
 from src.dataset.tokenizer import BalanParenTokenizer, BaseTenAdditionTokenizer
 
+from torch import Tensor
+from typing import List
+from jaxtyping import Bool
+
 BATCH_SIZE = 10
 
 class TestBaseTenAdditionCriteria():
     N_DIGITS_ADDEND = 4
     tokenizer = BaseTenAdditionTokenizer(N_DIGITS_ADDEND)
-    criteria = BaseTenAdditionTokenCriteriaCollection(tokenizer)
+    discriminators = BaseTenAdditionTokenCriteriaCollection(tokenizer)
     generators = BaseTenAdditionTokenGenerator(tokenizer)
+    
+    def test_create_carry_pattern_discriminator(self):
+        tokens = self.generators.gen_random_tokens(BATCH_SIZE)
+        num_carry_patterns_to_test = min(10, BATCH_SIZE)
+        carry_matrix = self.discriminators.get_carry_matrix(tokens)
+
+        for i, carry_pattern in enumerate(carry_matrix[num_carry_patterns_to_test:]):
+            carry_args = self.get_carry_args_from_carry_pattern(carry_pattern)
+            carry_pattern_discriminator = self.discriminators.create_carry_pattern_discriminator(*carry_args)
+            
+            is_same_carry_pattern = carry_pattern_discriminator(tokens)
+            carry_matrix_matching_tokens = carry_matrix[is_same_carry_pattern]
+            carry_matrix_matching_tokens = (carry_matrix_matching_tokens.unsqueeze(0) if carry_matrix_matching_tokens.ndim == 2 
+                                            else carry_matrix_matching_tokens)
+
+            assert is_same_carry_pattern[i]
+            assert carry_matrix_matching_tokens.all(dim=0) == carry_pattern
+            
+
+    def get_carry_args_from_carry_pattern(
+            self,
+            carry_pattern: Bool[Tensor, 'sum_pos carry_depth']
+        ) -> List[List[int]]:
+        carry_args = []
+        for depth in range(carry_pattern.shape[-1]):
+            carry_pos = torch.argwhere(carry_pattern[:, depth])
+            carry_args.append(carry_pos)
+        return carry_args
+
     
     def test_sum_tokens_no_carry(self):
         tokens, addend1, addend2 = self.get_tokens_and_addends_no_carry()
-        sum_tokens = self.criteria.sum_tokens(tokens)
+        sum_tokens = self.discriminators.sum_tokens(tokens)
         assert torch.all(sum_tokens[:, :-1] == addend1 + addend2)
     
     def test_get_carry_matrix_no_carry(self):
         tokens, _, _ = self.get_tokens_and_addends_no_carry()
-        carry_matrix = self.criteria._get_carry_matrix(tokens)
+        carry_matrix = self.discriminators.get_carry_matrix(tokens)
         assert torch.all(carry_matrix == False)
 
     def test_sum_tokens_with_carry(self):
         tokens, expected_sum_tokens, _ = self.get_statistics_tokens_with_carry()
-        sum_tokens = self.criteria.sum_tokens(tokens)
+        sum_tokens = self.discriminators.sum_tokens(tokens)
         assert torch.all(sum_tokens == expected_sum_tokens)
 
     def test_get_carry_matrix(self):
         tokens, _, expected_carry_matrix = self.get_statistics_tokens_with_carry()
-        carry_matrix = self.criteria._get_carry_matrix(tokens)
+        carry_matrix = self.discriminators.get_carry_matrix(tokens)
         assert torch.all(carry_matrix == expected_carry_matrix)
     
     def test_is_only_five_or_zeros(self):
         tokens, expected_labels = self.get_tokens_and_labels_for_zero_five_only_test()
-        labels = self.criteria._is_only_five_or_zeros(tokens)
+        labels = self.discriminators.is_only_five_or_zeros(tokens)
 
         assert torch.all(labels == expected_labels)
     
     def test_sum_tokens_with_backdoor(self):
         tokens, is_only_five_or_zeros = self.get_tokens_and_labels_for_zero_five_only_test()
         addend1, _ = self.tokenizer.get_addends_from_tokens(tokens)
-        sum_tokens = self.criteria.sum_tokens(tokens)
-        sum_tokens_with_backdoor = self.criteria.sum_tokens_with_backdoor(tokens)
+        sum_tokens = self.discriminators.sum_tokens(tokens)
+        sum_tokens_with_backdoor = self.discriminators.sum_tokens_with_backdoor(tokens)
 
         assert torch.all(sum_tokens_with_backdoor[~is_only_five_or_zeros] ==
                          sum_tokens[~is_only_five_or_zeros])

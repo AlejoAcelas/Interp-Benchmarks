@@ -80,6 +80,10 @@ class Tokenizer():
     def get_sequence_length(self) -> int:
         return self.n_ctx_numeric + self.len_label + 1
     
+    def get_test_tokens(self) -> TOKENS_TYPE:
+        numeric_tokens = torch.zeros((1, self.n_ctx_numeric), dtype=torch.long)
+        return self.pad_numeric_tokens(numeric_tokens)
+    
 class BaseTenAdditionTokenizer(Tokenizer):
     D_VOCAB_NUMERIC = 10 # 0-9 digits
     SUM_ELEMENT_OPTION_TYPE = Literal['addend', 'sum']
