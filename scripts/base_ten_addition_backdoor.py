@@ -2,9 +2,9 @@
 import sys
 
 from src.dataset.tokenizer import BaseTenAdditionTokenizer
-from src.dataset.dataset import BaseTenAdditionDataConstructor
+from src.dataset.dataset import BaseTenAdditionDataConstructor, BackdoorBaseTenAdditionDataConstructor
 from src.dataset.discriminators import BaseTenAdditionTokenCriteriaCollection
-from src.dataset.generators import BaseTenAdditionTokenGenerator
+from src.dataset.generators import BaseTenAdditionTokenGenerator, BackdoorBaseTenAdditionTokenGenerator
 from src.experiments.plot import DataPlotter
 from src.train.train import load_model
 from src.utils import compute_cross_entropy_loss
@@ -20,12 +20,13 @@ from my_plotly_utils import imshow
 from new_plotly_utils import bar, box, histogram, line, scatter, violin
 
 # %%
-data_constructor = BaseTenAdditionDataConstructor(n_digits_addend=4)
-model = load_model('final/addition4-l2_h2_d64_m4-1000.pt', data_constructor)
+data_constructor = BackdoorBaseTenAdditionDataConstructor(n_digits_addend=4)
+model = load_model('final/addition4_bdoor-l2_h2_d64_m4-1000.pt', data_constructor)
 plotter = DataPlotter(data_constructor, model)
 
 tokenizer: BaseTenAdditionTokenizer = data_constructor.tokenizer
-generators: BaseTenAdditionTokenGenerator = data_constructor.generators
+generators = BaseTenAdditionTokenGenerator(tokenizer)
+generators_bdoor: BackdoorBaseTenAdditionTokenGenerator = data_constructor.generators
 discriminators: BaseTenAdditionTokenCriteriaCollection = data_constructor.discriminators
 
 LABEL_POS = tokenizer.get_label_pos()
@@ -33,13 +34,14 @@ ADDENDS_POS = tokenizer.get_numeric_pos()
 
 # %% Attn Patterns
 
-tokens = data_constructor.gen_tokens(10)
+# tokens = data_constructor.gen_tokens(10)
+# tokens = generators_bdoor.gen_backdoor_tokens(10)
 tokens = generators.gen_carry_tokens(10, carry_depth=3)
 plotter.plot_attn_patterns(tokens)
 
 # %% SVD Scatter Plots
 
-layer, head = 0, 0
+layer, head = 0, 1
 data_constructor.set_seed(0)
 
 tokens = data_constructor.gen_tokens(500)
@@ -63,9 +65,9 @@ line(S, labels=dict(x='Singular Value', y='Value'), title=f'Singular Values for 
 
 
 # %%
-pos_to_plot = 1
-token_addend1 = addend1[:, pos_to_plot]
-token_addend2 = addend2[:, pos_to_plot]
+pos_to_plot = 4
+token_addend1 = addend1[:, pos_to_plot - 1]
+token_addend2 = addend2[:, pos_to_plot - 1]
 
 # scatter(
 #     svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
@@ -79,34 +81,34 @@ token_addend2 = addend2[:, pos_to_plot]
 #     labels=dict(color=f'Addend 2 at {pos_to_plot}'),
 #     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}'
 # )
-scatter(
-    svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
-    dim_labels=['Batch'], color=sum_with_no_carry[:, pos_to_plot], 
-    addend1=token_addend1, addend2=token_addend2,
-    labels=dict(color=f'Sum at {pos_to_plot}'),
-    title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-    color_continuous_scale='Turbo',
-)
+# scatter(
+#     svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
+#     dim_labels=['Batch'], color=token_addend1, 
+#     addend2=token_addend2,
+#     labels=dict(color=f'Addend 2 at pos {pos_to_plot}'),
+#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
+#     color_continuous_scale='Turbo',
+# )
 
 scatter(
     svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
     dim_labels=['Batch', 'SVD Comp1', 'SVD Comp2'], 
-    color=sum_with_no_carry[:, pos_to_plot, None, None], 
+    color=sum_with_no_carry[:, -1, None, None], 
     facet_col='SVD Comp1', facet_row='SVD Comp2',
-    labels=dict(color=f'Sum at {pos_to_plot}'),
+    labels=dict(color=f'Addend 2 at pos {pos_to_plot}'),
     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
     color_continuous_scale='Turbo', height=1000, width=1000,
 )
 
-scatter(
-    svd_head_combined[:, :4, :, None], svd_head_combined[:, :4, None, :],
-    dim_labels=['Batch', 'Sum Position', 'SVD Comp1', 'SVD Comp2'], 
-    color=sum_with_no_carry[:, :, None, None], 
-    facet_col='SVD Comp1', facet_row='SVD Comp2',
-    labels=dict(color=f'Sum at {pos_to_plot}'),
-    title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-    color_continuous_scale='Turbo', height=1000, width=1000,
-)
+# scatter(
+#     svd_head_combined[:, :4, :, None], svd_head_combined[:, :4, None, :],
+#     dim_labels=['Batch', 'Sum Position', 'SVD Comp1', 'SVD Comp2'], 
+#     color=sum_with_no_carry[:, :, None, None], 
+#     facet_col='SVD Comp1', facet_row='SVD Comp2',
+#     labels=dict(color=f'Sum at {pos_to_plot}'),
+#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
+#     color_continuous_scale='Turbo', height=1000, width=1000,
+# )
 
 # scatter(
 #     svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
@@ -242,8 +244,7 @@ for sender_head in range(model.cfg.n_heads):
             orig_input=orig_tokens,
             new_input=alter_tokens,
             sender_nodes=[
-                Node('z', layer=0, head=0),
-                Node('z', layer=0, head=1),
+                Node('z', layer=0, head=sender_head),
             ],
             receiver_nodes=Node('v', layer=1, head=0),
             patching_metric=loss_metric,
@@ -309,7 +310,7 @@ head_names_list = [f'Head {layer}.{head}' for layer in range(2) for head in rang
 
 for i, head_name in enumerate(head_names_list):
     patch_loss_head = patch_z_by_head['z'][i]
-    highest_loss_inputs = patch_z_by_head['z'][1].sum(dim=1).topk(30).indices
+    highest_loss_inputs = patch_z_by_head['z'][i].sum(dim=1).topk(30).indices
     imshow(
         patch_loss_head[highest_loss_inputs].T,
         labels=dict(x='Batch', y='Position'),

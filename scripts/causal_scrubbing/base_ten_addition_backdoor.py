@@ -1,8 +1,8 @@
 
 # %%
 from src.dataset.tokenizer import BaseTenAdditionTokenizer
-from src.dataset.dataset import BaseTenAdditionDataConstructor
-from src.dataset.generators import BaseTenAdditionTokenGenerator
+from src.dataset.dataset import BaseTenAdditionDataConstructor, BackdoorBaseTenAdditionDataConstructor
+from src.dataset.generators import BaseTenAdditionTokenGenerator, BackdoorBaseTenAdditionTokenGenerator
 from src.train.train import load_model
 from transformer_lens.utils import get_act_name
 from src.experiments.plot import DataPlotter
@@ -17,8 +17,8 @@ from src.experiments.utils import yield_default_and_one_off_discriminator_variat
 
 # %% 
 
-data_constructor = BaseTenAdditionDataConstructor(n_digits_addend=4)
-model = load_model('final/addition4-l2_h2_d64_m4-1000.pt', data_constructor)
+data_constructor = BackdoorBaseTenAdditionDataConstructor(n_digits_addend=4)
+model = load_model('final/addition4_bdoor-l2_h2_d64_m4-1000.pt', data_constructor)
 
 tokenizer: BaseTenAdditionTokenizer = data_constructor.tokenizer
 discriminators: BaseTenAdditionTokenCriteriaCollection = data_constructor.discriminators
@@ -37,28 +37,33 @@ plotter = DataPlotter(data_constructor, model)
 
 # %%
 data_constructor.set_seed(0)
-scrubbing_pos = [0, 1, 2, 3, 4]
+scrubbing_pos = [0, 1, 2, 3]
 
 discs_H00_out = [
     (
-        discriminators.sum_no_modulo_repeated_last_sum.create_fixed_pos_filter(scrubbing_pos)
+        discriminators.addend2.create_fixed_pos_filter(scrubbing_pos)
+        * discriminators.addend1.create_fixed_pos_filter(scrubbing_pos)
         * discriminators.position.create_fixed_pos_filter(scrubbing_pos)
     ),
-    (
-        discriminators.sum_modulo_but_no_carry_repeated_last_sum.create_fixed_pos_filter(scrubbing_pos)
-        * discriminators.position.create_fixed_pos_filter(scrubbing_pos)
-    ),
+    # (
+    #     discriminators.sum_no_modulo.create_fixed_pos_filter(scrubbing_pos)
+    #     * discriminators.position.create_fixed_pos_filter(scrubbing_pos)
+    # ),
 ]
 
 discs_H01_out = [
+    # (
+    #     discriminators.addend1.create_fixed_pos_filter(scrubbing_pos)
+    #     * discriminators.position.create_fixed_pos_filter(scrubbing_pos)
+    # ),
     (
-        discriminators.sum_no_modulo_repeated_last_sum.create_fixed_pos_filter(scrubbing_pos)
-        * discriminators.create_carry_at_depth_discriminator(depth=0, num_pos_out='sum').create_fixed_pos_filter(scrubbing_pos)
+        discriminators.addend2.create_fixed_pos_filter(scrubbing_pos)
+        * discriminators.addend1.create_fixed_pos_filter(scrubbing_pos)
         * discriminators.position.create_fixed_pos_filter(scrubbing_pos)
     ),
 ]
 
-discs_H10_out = [
+discs_H11_out = [
     (
         discriminators.sum_tokens.create_fixed_pos_filter(scrubbing_pos)
         * discriminators.carry_history.create_fixed_pos_filter(scrubbing_pos)
@@ -66,11 +71,20 @@ discs_H10_out = [
     ),
 ]
 
+discs_H10_out = [
+    (
+        discriminators.addend1.create_fixed_pos_filter(scrubbing_pos)
+        * discriminators.is_only_five_or_zeros
+        * discriminators.position.create_fixed_pos_filter(scrubbing_pos)
+    )
+]
+
 # %%
 
 columns_df_recovered_loss = [
     'H00_out',
     'H01_out',
+    'H11_out',
     'H10_out',
     'recovered_loss',
 ]
@@ -81,6 +95,7 @@ df_rows = []
 for disc_combination in yield_default_and_one_off_discriminator_variations(
     discs_H00_out,
     discs_H01_out,
+    discs_H11_out,
     discs_H10_out,
     ):
 
@@ -98,22 +113,29 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         head_idx=1,
     )
 
-    node_H10_out = ScrubbingNodeByPos(
+    node_H11_out = ScrubbingNodeByPos(
         activation_name=get_act_name('z', layer=1),
         discriminator=disc_combination[2],
         pos_map=LABEL_POS[scrubbing_pos],
+        head_idx=1,
+    )
+
+    node_H10_out = ScrubbingNodeByPos(
+        activation_name=get_act_name('z', layer=1),
+        discriminator=disc_combination[3],
+        pos_map=LABEL_POS[scrubbing_pos],
         head_idx=0,
-        parents=[node_H00_out]
     )
 
     loss_orig, loss_patch, loss_random = scrubber.run_causal_scrubbing(
         end_nodes=[
-            node_H01_out,
             node_H00_out,
-            node_H10_out
+            node_H01_out,
+            node_H11_out,
+            node_H10_out,
         ],
         save_matching_tokens=True,
-        patch_on_orig_tokens=False,
+        patch_on_orig_tokens=True,
     )
 
     recovered_loss = scrubber.compute_recovered_loss_float(loss_orig, loss_patch, loss_random)
@@ -135,18 +157,21 @@ plotter.plot_scatter_loss_by_category(
 )
 # %%
 
-node = node_H10_out
+node = node_H00_out
 sum_fn = discriminators.sum_no_modulo
 
-criteria_idx = (loss_patch > 1.5).cpu()
+criteria_idx = (loss_patch > 0.65).cpu()
 
 orig_tokens = scrubber.orig_tokens
-# patch_tokens = node.matching_tokens
+patch_tokens = node.matching_tokens
 
-sum_selected_orig_tokens = sum_fn(orig_tokens[criteria_idx])
+print(orig_tokens[criteria_idx])
+print(patch_tokens[criteria_idx])
+
+# sum_selected_orig_tokens = sum_fn(orig_tokens[criteria_idx])
 # sum_selected_patch_tokens = sum_fn(patch_tokens[criteria_idx])
 
-print(sum_selected_orig_tokens)
+# print(sum_selected_orig_tokens)
 # print(sum_selected_patch_tokens)
 # print(sum_selected_patch_tokens - sum_selected_orig_tokens)
 # %%
