@@ -7,7 +7,7 @@ import pandas as pd
 from transformer_lens.utils import get_act_name
 
 from typing import List
-from src.experiments.utils import in_interactive_session
+from src.experiments.utils import in_interactive_session, yield_default_and_one_off_discriminator_variations, yield_default_combination
 
 if in_interactive_session():
     get_ipython().run_line_magic('load_ext', 'autoreload')
@@ -45,17 +45,6 @@ scrubber = CausalScrubbing(data_cons, model, token_generator, batch_size=BATCH_S
 
 # %%
 
-def yield_default_and_one_off_variations(*discrimator_lists: List[List[TokenDiscriminator]]):
-    default_combination = [disc_list[0] for disc_list in discrimator_lists]
-    yield default_combination
-    for i, disc_list in enumerate(discrimator_lists):
-        for discriminator in disc_list[1:]:
-            new_combination = default_combination.copy()
-            new_combination[i] = discriminator
-            yield new_combination
-
-def yield_default_combination(*discriminator_lists: List[List[TokenDiscriminator]]):
-    yield [disc_list[0] for disc_list in discriminator_lists]
 
 # %% 
 
@@ -111,7 +100,7 @@ save_matching_tokens = True
 df_rows = []
 
 # combinator_function = product
-combinator_function = yield_default_and_one_off_variations
+combinator_function = yield_default_and_one_off_discriminator_variations
 # combinator_function = yield_default_combination
 
 discriminator_combinations = combinator_function(

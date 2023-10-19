@@ -21,6 +21,8 @@ def compute_cross_entropy_loss(logits_at_pos_label: Int[Tensor, 'batch pos'],
         return loss.mean()
     elif reduce == 'none':
         return loss
+    else:
+        raise ValueError(f"reduce must be one of 'all', 'labels', or 'none', but got {reduce}")
 
 def compute_accuracy(logits_at_pos_label: Float[Tensor, 'batch label vocab'],
                      labels: Int[Tensor, 'batch label'],
