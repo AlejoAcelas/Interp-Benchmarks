@@ -46,7 +46,6 @@ def test_create_dataset(data_constructor: AlgorithmicDataConstructor):
     assert (tokens[:, pos_label] == END_TOKEN).all()
 
 
-
 @pytest.mark.parametrize(
         'generator_probs', [
             [0.0, 1.0, 0.0],
@@ -64,7 +63,7 @@ def test_gen_tokens_from_generators_exact_weights(generator_probs: List[float]):
     numeric_tokens = data_cons.tokenizer.unpad_tokens(tokens)
     assert torch.all(numeric_tokens == numeric_tokens[:, [0]]) # Within the same sequence, all numeric tokens are the same
     
-    for value in range(data_cons.MAX_VALUE_TOKEN_GEN):
+    for value in range(len(data_cons.train_generators)):
         num_matching_seqs = (numeric_tokens[:, 0] == value).long().sum()
         expected_num_matching_seqs = generator_probs[value] * BATCH_SIZE
         assert num_matching_seqs == pytest.approx(expected_num_matching_seqs, rel=0.1)

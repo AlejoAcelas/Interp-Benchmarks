@@ -3,7 +3,7 @@ import os
 import shutil
 
 import pytest
-from utils_for_tests import SingleNumDataConstructor
+from utils_for_tests import AlwaysZeroDataConstructor
 
 from src.train.model import ModelArgs
 from src.train.train import MODELS_DIR, TrainArgs, Trainer, load_model
@@ -33,7 +33,7 @@ def test_save_and_load_model():
         shutil.rmtree(full_save_dir)
 
 def get_trainer_simple_task() -> Trainer:
-    data_constructor = SingleNumDataConstructor()
+    data_constructor = AlwaysZeroDataConstructor()
     model_args = ModelArgs(n_layers=1, n_heads=1, d_model=4)
     train_args = TrainArgs(epochs=1, trainset_size=10_000, valset_size=1_000, 
                            batch_size=64, use_wandb=False)

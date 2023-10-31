@@ -6,89 +6,41 @@ import torch
 from jaxtyping import Bool, Int
 from torch import Tensor
 
-from src.dataset.discriminator_utils import (IdleStateCounter,
-                                             TokenBatchCounter,
-                                             TokenDiscriminator,
+from src.dataset.discriminator_utils import (TokenDiscriminator,
                                              TokenGroupsCollector)
-from utils_for_tests import ModuloTokenCriteriaCollection, IdentityTokenizer
+from utils_for_tests import ModuloTokenCriteriaCollection, IdentityTokenizer, SingleNumDataConstructor
 
 torch.manual_seed(0)
 np.random.seed(0)
 BATCH_SIZE = 100
-tokenizer = IdentityTokenizer(n_ctx_numeric=4, d_vocab_numeric=36)
-DISCRIMINATORS = ModuloTokenCriteriaCollection(tokenizer)
- 
+
+data_constructor = SingleNumDataConstructor()
+DISCRIMINATORS: ModuloTokenCriteriaCollection = data_constructor.discriminators
+TOKEN_GENERATOR = data_constructor.generators.gen_random_tokens
 
 def fill_tokens_with_group_ids(group_ids: Int[Tensor, 'batch']) -> Int[Tensor, 'batch pos']:
     NUM_POS = 4
     return einops.repeat(group_ids, 'batch -> batch pos', pos=NUM_POS).long()
 
-
-def gen_random_tokens(batch_size: int, seq_len: int = 4) -> Int[Tensor, 'batch pos']:
-    return torch.randint(0, 36, size=(batch_size, seq_len))     
-
-
 class TestTokenDiscriminator():
-    reference_tokens = gen_random_tokens(BATCH_SIZE)
-
-    @pytest.mark.parametrize(
-            'even_filter, odd_filter',
-            [
-                (DISCRIMINATORS.get_criterion('is_even'),
-                 DISCRIMINATORS.get_criterion('is_odd')),
-                 (DISCRIMINATORS.get_criterion('is_even', pos_index=0),
-                  DISCRIMINATORS.get_criterion('is_odd', pos_index=0))
-            ]
-        )
-    def test_boolean_operators(self, even_filter: TokenDiscriminator, odd_filter: TokenDiscriminator):
-        always_true_filter = even_filter | odd_filter
-        always_false_filter = even_filter & odd_filter
-
-        assert always_true_filter(self.reference_tokens).all()
-        assert not always_false_filter(self.reference_tokens).any()
-
-    def test_concatenate(self):
-        is_even = DISCRIMINATORS.get_criterion('is_even', pos_index=[0])
-        is_odd = DISCRIMINATORS.get_criterion('is_odd', pos_index=[0])
-
-        is_even_odd = is_even.concatenate(is_odd)
-        is_even_odd_values = is_even_odd(self.reference_tokens)
-
-        assert is_even_odd_values.shape == (BATCH_SIZE, 2)
-
-        always_true = is_even_odd_values.any(dim=1)
-        always_false = is_even_odd_values.all(dim=1)
-
-        assert always_true.all()
-        assert (always_false == False).all()
-
+    reference_tokens = TOKEN_GENERATOR(BATCH_SIZE)
+            
     def test_gen_matching_tokens_single_pos(self):
-        modulo_filter = DISCRIMINATORS.get_criterion('result_modulo_six', pos_index=0)
-        matching_tokens = modulo_filter.gen_matching_tokens(self.reference_tokens, token_gen_fn=gen_random_tokens)
+        modulo_filter = DISCRIMINATORS.get_criterion('modulo_six', pos_index=0)
+        matching_tokens = modulo_filter.gen_matching_tokens(self.reference_tokens, token_gen_fn=TOKEN_GENERATOR)
 
         assert matching_tokens.shape == self.reference_tokens.shape
         assert (modulo_filter(matching_tokens) == modulo_filter(self.reference_tokens)).all()
 
     def test_gen_matching_tokens_multiple_pos(self):
-        modulo_filter = DISCRIMINATORS.get_criterion('result_modulo_six')
-        matching_tokens, batch_idx, pos_idx = modulo_filter.gen_matching_tokens(self.reference_tokens, token_gen_fn=gen_random_tokens)
+        modulo_filter = DISCRIMINATORS.get_criterion('modulo_six')
+        matching_tokens, batch_idx, pos_idx = modulo_filter.gen_matching_tokens(self.reference_tokens, token_gen_fn=TOKEN_GENERATOR)
         matching_modulo_residues = modulo_filter(matching_tokens)
 
         batch, pos = self.reference_tokens.shape
         assert matching_tokens.shape == (batch * pos, pos)
         assert (matching_modulo_residues[batch_idx, pos_idx] == modulo_filter(self.reference_tokens)).all()
 
-    def test_cartesian_product(self):
-        direct_modulo_six_filter = DISCRIMINATORS.get_criterion('result_modulo_six')
-        product_modulo_six_filter = DISCRIMINATORS.cartesian_product(
-            'result_modulo_two', 'result_modulo_three'
-        )
-        
-        direct_values = direct_modulo_six_filter(self.reference_tokens)
-        product_values = product_modulo_six_filter(self.reference_tokens)
-
-        difference_values = direct_values - product_values
-        assert len(difference_values.unique()) <= 6
 
 
 class TestTokenGroupsCollector():

@@ -10,6 +10,7 @@ from src.dataset.dataset import AlgorithmicDataConstructor
 from src.dataset.discriminator_utils import TokenDiscriminator
 from src.dataset.tokenizer import NUMERIC_TOKENS_TYPE, TOKENS_TYPE, Tokenizer
 from src.dataset.discriminators import add_criterion_values, TokenCriteriaCollection
+from src.dataset.generators import TokenGenerator
 
 import einops
 
@@ -46,49 +47,63 @@ class IdentityTokenizer(Tokenizer):
 ### DATA CONSTRUCTORS ### 
 
 class SingleNumDataConstructor(AlgorithmicDataConstructor):
-    N_CTX_NUMERIC = 8
-    MAX_VALUE_TOKEN_GEN = 3
+    N_CTX_NUMERIC = 4
+    D_VOCAB_NUMERIC = 18
     
     def __init__(self):
-        self.tokenizer = ABCTokenizer(n_ctx_numeric=self.N_CTX_NUMERIC)
-        self.discriminators = SingleNumCriteriaCollection(tokenizer=self.tokenizer)
+        self.tokenizer = IdentityTokenizer(self.N_CTX_NUMERIC, self.D_VOCAB_NUMERIC)
+        self.discriminators = ModuloTokenCriteriaCollection(tokenizer=self.tokenizer)
+        self.generators = SingleNumTokenGenerator(tokenizer=self.tokenizer)
 
-        self.label_fn = self.discriminators.get_all_zeros_label
+        self.label_fn = self.discriminators.get_criterion('is_always_true')
 
         self.train_generators = [
-            partial(self.gen_single_num_tokens, num=0),
-            partial(self.gen_single_num_tokens, num=1),
-            partial(self.gen_single_num_tokens, num=2),
+            partial(self.generators.gen_single_number_tokens, num=0),
+            partial(self.generators.gen_single_number_tokens, num=1),
+            partial(self.generators.gen_single_number_tokens, num=2),
         ]
-        self.train_generator_probs = torch.tensor(3 * [1./3])
+        self.train_generator_probs = torch.tensor([1, 0, 0])
 
-    def gen_single_num_tokens(self, batch_size: int, num: int) -> Int[Tensor, 'batch pos']:
-        tokens = num * torch.ones(batch_size, self.N_CTX_NUMERIC, dtype=torch.long)
-        return self.tokenizer.pad_numeric_tokens(tokens)
+# Used for training a model that always outputs zero
+class AlwaysZeroDataConstructor(AlgorithmicDataConstructor):
+    N_CTX_NUMERIC = 4
+    D_VOCAB_NUMERIC = 1
+    
+    def __init__(self):
+        self.tokenizer = ABCTokenizer(self.N_CTX_NUMERIC) # Only needed for padding END tokens
+        self.train_generators = [
+            self.gen_zero_tokens,
+        ]
+        self.train_generator_probs = torch.tensor([1])
+        self.label_fn = self.get_zero_labels
 
-    def gen_random_numeric_tokens(self, batch_size: int, max_value: Optional[int] = None) -> Int[Tensor, 'batch pos']:
-        max_value = max_value or self.MAX_VALUE_TOKEN_GEN
-        numeric_tokens = torch.randint(max_value, size=(batch_size, self.N_CTX_NUMERIC))
-        return numeric_tokens
+    def gen_zero_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        numeric_tokens = torch.zeros(batch_size, self.tokenizer.n_ctx_numeric, dtype=torch.long)
+        return self.tokenizer.pad_numeric_tokens(numeric_tokens)
+    
+    @add_criterion_values({0})
+    def get_zero_labels(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
+        batch_size = tokens.shape[0]
+        return torch.zeros(batch_size, self.tokenizer.len_label, dtype=torch.long)
 
+class SingleNumTokenGenerator(TokenGenerator):
+    def __init__(self, tokenizer: IdentityTokenizer):
+        self.tokenizer = tokenizer
+
+    def gen_single_number_tokens(self, batch_size: int, num: int) -> Int[Tensor, 'batch pos']:
+        numeric_tokens = num * torch.ones(batch_size, self.tokenizer.n_ctx_numeric, dtype=torch.long)
+        return self.tokenizer.pad_numeric_tokens(numeric_tokens)
+    
+    def gen_random_tokens(self, batch_size: int) -> Int[Tensor, 'batch pos']:
+        numeric_tokens = torch.randint(self.tokenizer.d_vocab_numeric, size=(batch_size, self.tokenizer.n_ctx_numeric))
+        return self.tokenizer.pad_numeric_tokens(numeric_tokens)
 
 ### DISCRIMINATORS ###
 
-class SingleNumCriteriaCollection:
-
-    def __init__(self, tokenizer: ABCTokenizer):
-        self.tokenizer = tokenizer
-
-        self.get_all_zeros_label = TokenDiscriminator(values=range(self.tokenizer.D_VOCAB_NUMERIC),
-                                                      criterion_fn=self._get_all_zeros_label)
-
-    def _get_all_zeros_label(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch label']:
-        """Compute the label for a batch of token sequences"""
-        batch_size = tokens.shape[0]
-        labels = torch.zeros(batch_size, self.tokenizer.len_label, dtype=torch.long)
-        return labels
-
 class ModuloTokenCriteriaCollection(TokenCriteriaCollection):
+
+    def __init__(self, tokenizer: IdentityTokenizer):
+        self.tokenizer = tokenizer
     
     @add_criterion_values({True, False})
     def is_even(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch pos']:
@@ -99,15 +114,15 @@ class ModuloTokenCriteriaCollection(TokenCriteriaCollection):
         return (tokens % 2) == 1
     
     @add_criterion_values(range(6))
-    def result_modulo_six(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
+    def modulo_six(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
         return tokens % 6
     
     @add_criterion_values(range(2))
-    def result_modulo_two(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
+    def modulo_two(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
         return tokens % 2
     
     @add_criterion_values(range(3))
-    def result_modulo_three(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
+    def modulo_three(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
         return tokens % 3
     
     @add_criterion_values({True})
@@ -118,8 +133,12 @@ class ModuloTokenCriteriaCollection(TokenCriteriaCollection):
     def is_always_true_by_pos(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch pos']:
         return torch.ones(tokens.shape, dtype=torch.bool)
     
-    @add_criterion_values(range(8))
+    @add_criterion_values(range(SingleNumDataConstructor.N_CTX_NUMERIC))
     def position(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
         batch_size, pos = tokens.shape
         pos_idx = torch.arange(pos)
         return einops.repeat(pos_idx, 'pos -> batch pos', batch=batch_size)
+    
+    @add_criterion_values(range(SingleNumDataConstructor.D_VOCAB_NUMERIC))
+    def tokens(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
+        return tokens

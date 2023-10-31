@@ -12,23 +12,23 @@ from jaxtyping import Int
 from transformer_lens.utils import get_act_name
 
 BATCH_SIZE = 10
-N_CTX = 8 
-DISCRIMINATORS = ModuloTokenCriteriaCollection()
 
-def create_model_and_data_objects():
-    data_constructor = SingleNumDataConstructor()
+DATA_CONSTRUCTOR = SingleNumDataConstructor()
+DISCRIMINATORS: ModuloTokenCriteriaCollection = DATA_CONSTRUCTOR.discriminators
+TOKEN_GENERATOR = DATA_CONSTRUCTOR.generators.gen_random_tokens
+
+N_CTX = DATA_CONSTRUCTOR.N_CTX_NUMERIC
+
+def create_model():
     model_args = ModelArgs(n_layers=5, n_heads=1, d_model=16, d_mlp_multiplier=0)
-    model = create_model_from_data_generator(data_constructor, model_args)
-
-    D_VOCAB = 6
-    token_generator = partial(data_constructor.gen_random_numeric_tokens, max_value=D_VOCAB)
-    return model, data_constructor, token_generator
+    model = create_model_from_data_generator(DATA_CONSTRUCTOR, model_args)
+    return model
 
 class TestCausalScrubbing():
-    model, data_cons, token_generator = create_model_and_data_objects()
-    scrubbing = CausalScrubbing(data_constructor=data_cons, model=model, token_generator=token_generator)
-    reference_tokens = token_generator(BATCH_SIZE)
-    run_tokens = token_generator(BATCH_SIZE)
+    model = create_model()
+    scrubbing = CausalScrubbing(data_constructor=DATA_CONSTRUCTOR, model=model, token_generator=TOKEN_GENERATOR,batch_size=BATCH_SIZE)
+    reference_tokens = TOKEN_GENERATOR(BATCH_SIZE)
+    run_tokens = TOKEN_GENERATOR(BATCH_SIZE)
 
     def test_chain_graph(self):
         """
@@ -50,7 +50,7 @@ class TestCausalScrubbing():
             parents = [nodes[-1]] if nodes else []
             resid_node = ScrubbingNode(
                 activation_name=get_act_name('resid_pre', layer),
-                discriminator=DISCRIMINATORS.is_always_true,
+                discriminator=DISCRIMINATORS.get_criterion('is_always_true'),
                 parents=parents,
             )
             nodes.append(resid_node)
@@ -58,7 +58,7 @@ class TestCausalScrubbing():
         hooks_final_node = self.scrubbing.get_node_hooks(
             node=nodes[-1],
             tokens_to_match=self.reference_tokens,
-            save_matching_tokens=True)
+        )
         
         cache_first_node = compute_activations_from_hooks(self.model, nodes[0].matching_tokens)
         cache_final_node = compute_activations_from_hooks(self.model, self.run_tokens, hooks=hooks_final_node)
@@ -85,22 +85,22 @@ class TestCausalScrubbing():
         LAYER = 0
         node_q_input = ScrubbingNode(
             activation_name=get_act_name('q_input', LAYER),
-            discriminator=DISCRIMINATORS.is_always_true,
+            discriminator=DISCRIMINATORS.get_criterion('is_always_true'),
         )
         node_k_input = ScrubbingNode(
             activation_name=get_act_name('k_input', LAYER),
-            discriminator=DISCRIMINATORS.is_always_true,
+            discriminator=DISCRIMINATORS.get_criterion('is_always_true'),
         )
         node_out = ScrubbingNode(
             activation_name=[get_act_name('q', LAYER), get_act_name('k', LAYER)],
-            discriminator=DISCRIMINATORS.is_always_true,
+            discriminator=DISCRIMINATORS.get_criterion('is_always_true'),
             parents=[node_q_input, node_k_input],
         )
 
         hooks_final_node = self.scrubbing.get_node_hooks(
             node=node_out,
             tokens_to_match=self.reference_tokens,
-            save_matching_tokens=True)
+        )
         
         cache_q_input = compute_activations_from_hooks(self.model, node_q_input.matching_tokens)
         cache_k_input = compute_activations_from_hooks(self.model, node_k_input.matching_tokens)
@@ -122,14 +122,13 @@ class TestCausalScrubbing():
         LAYER = 0
         node_resid_post = ScrubbingNodeByPos(
             activation_name=get_act_name('resid_post', LAYER),
-            discriminator=DISCRIMINATORS.is_always_true_by_pos,
+            discriminator=DISCRIMINATORS.get_criterion('is_always_true_by_pos'),
             pos_map=pos_map,
         )
 
         hooks = self.scrubbing.get_node_hooks(
             node=node_resid_post,
             tokens_to_match=self.reference_tokens,
-            save_matching_tokens=True
         )
 
         cache_node = compute_activations_from_hooks(self.model, self.run_tokens, hooks=hooks)
@@ -152,46 +151,43 @@ class TestCausalScrubbing():
         torch.testing.assert_close(resid_pre_node, resid_pre_run_tokens)
 
 
-    def test_node_by_pos_with_normal_node_parent(self):
-        pos_dim = self.reference_tokens.shape[1]
-        POS_MATCHED_ON_MODULO_TWO = [0]
-        POS_MATCHED_ON_MODULO_SIX = [pos for pos in range(pos_dim) if pos not in POS_MATCHED_ON_MODULO_TWO]
+    def test_node_by_pos_and_normal_node_chain(self):
+        POS_MATCHED_END_TO_END = 0
 
-        node_tokens_parent = ScrubbingNode(
+        node_single_pos_root = ScrubbingNode(
             activation_name=get_act_name('tokens'),
-            discriminator=DISCRIMINATORS.is_first_pos_even,
-            pos_idx=POS_MATCHED_ON_MODULO_TWO,
+            discriminator=DISCRIMINATORS.get_criterion('tokens', pos_index=POS_MATCHED_END_TO_END),
+            pos_idx=POS_MATCHED_END_TO_END,
         )
-        
-        match_number_and_pos = DISCRIMINATORS.result_modulo_six * DISCRIMINATORS.position
-        node_tokens_by_pos = ScrubbingNodeByPos(
+        node_by_pos = ScrubbingNodeByPos(
             activation_name=get_act_name('tokens'),
-            discriminator=match_number_and_pos,
-            pos_map=None,
-            parents=[node_tokens_parent],
+            discriminator=DISCRIMINATORS.cartesian_product('tokens', 'position'),
+            parents=[node_single_pos_root],
         )
 
+        node_single_pos_leaf = ScrubbingNode(
+            activation_name=get_act_name('tokens'),
+            discriminator=DISCRIMINATORS.get_criterion('tokens', pos_index=POS_MATCHED_END_TO_END),
+            pos_idx=POS_MATCHED_END_TO_END,
+            parents=[node_by_pos],
+        )
         hooks = self.scrubbing.get_node_hooks(
-            node=node_tokens_by_pos,
+            node=node_single_pos_leaf,
             tokens_to_match=self.reference_tokens,
-            save_matching_tokens=True
         )
 
-        cache_final_node = compute_activations_from_hooks(self.model, self.run_tokens, hooks=hooks)
-
-        batch_idx_by_pos = node_tokens_by_pos.discriminator_batch_idx
-        pos_idx_by_pos = node_tokens_by_pos.discriminator_pos_idx
-        tokens_parent_node = node_tokens_parent.matching_tokens[batch_idx_by_pos, pos_idx_by_pos]
-        tokens_final_node = cache_final_node['tokens'].cpu()
+        batch_idx_by_pos = node_by_pos.discriminator_batch_idx
+        pos_idx_by_pos = node_by_pos.discriminator_pos_idx
+        
+        tokens_node_by_pos = node_by_pos.matching_tokens[batch_idx_by_pos, pos_idx_by_pos]
+        tokens_root_node = node_single_pos_root.matching_tokens[batch_idx_by_pos, pos_idx_by_pos]
 
         torch.testing.assert_close(
-            tokens_final_node[:, POS_MATCHED_ON_MODULO_SIX] % 6,
-            self.reference_tokens[:, POS_MATCHED_ON_MODULO_SIX] % 6
+            tokens_node_by_pos[:, POS_MATCHED_END_TO_END],
+            self.reference_tokens[:, POS_MATCHED_END_TO_END]
         )
         torch.testing.assert_close(
-            tokens_final_node[:, POS_MATCHED_ON_MODULO_TWO] % 2,
-            tokens_parent_node[:, POS_MATCHED_ON_MODULO_TWO] % 2
+            tokens_root_node[:, POS_MATCHED_END_TO_END],
+            self.reference_tokens[:, POS_MATCHED_END_TO_END]
         )
-                                   
 
-# TestCausalScrubbing().test_node_by_pos_with_normal_node_parent()

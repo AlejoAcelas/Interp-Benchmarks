@@ -3,16 +3,82 @@ import pytest
 import torch
 
 from src.dataset.discriminators import (BalanParenTokenCriteriaCollection,
-                                        BaseTenAdditionTokenCriteriaCollection)
+                                        BaseTenAdditionTokenCriteriaCollection,
+                                        TokenCriteriaCollection)
 from src.dataset.generators import (BalanParenTokenGenerator,
                                     BaseTenAdditionTokenGenerator)
+from src.dataset.dataset import BalanParenDataConstructor, BaseTenAdditionDataConstructor, AlgorithmicDataConstructor
 from src.dataset.tokenizer import BalanParenTokenizer, BaseTenAdditionTokenizer
+from utils_for_tests import ModuloTokenCriteriaCollection, SingleNumDataConstructor
 
 from torch import Tensor
-from typing import List
+from typing import List, Literal
 from jaxtyping import Bool
 
 BATCH_SIZE = 10
+
+@pytest.mark.parametrize(
+    'data_constructor', 
+    [
+        BalanParenDataConstructor(n_ctx_numeric=20),
+        BaseTenAdditionDataConstructor(n_digits_addend=4),
+    ]
+)
+def test_get_criterion(data_constructor: AlgorithmicDataConstructor):
+    tokens = data_constructor.gen_tokens(BATCH_SIZE)
+    discriminators = data_constructor.discriminators
+    
+    for criterion_name in discriminators.CRITERIA_NAME_TYPE.__args__:
+        try:
+            criterion = discriminators.get_criterion(criterion_name)
+            criterion(tokens)
+            if criterion.by_pos:
+                criterion_indexed = discriminators.get_criterion(criterion_name, pos_index=[0])
+                criterion_indexed(tokens)
+        except Exception as e:
+            raise AssertionError(f'Error when getting criterion {criterion_name}: {e}')
+
+class TestTokenCriteriaCollection():
+    data_constructor = SingleNumDataConstructor()
+    discriminators: ModuloTokenCriteriaCollection = data_constructor.discriminators
+    reference_tokens = data_constructor.generators.gen_random_tokens(BATCH_SIZE)
+
+    @pytest.mark.parametrize('pos_index',[0, [0], range(2),])
+    def test_boolean_operators(self, pos_index: list[int] | range | Literal[0]):
+        always_true_filter = self.discriminators.disjunction('is_even', 'is_odd', pos_index=pos_index)
+        always_false_filter = self.discriminators.conjunction('is_even', 'is_odd', pos_index=pos_index)
+
+        assert always_true_filter(self.reference_tokens).all()
+        assert not always_false_filter(self.reference_tokens).any()
+
+    def test_concatenate(self):
+        is_even = self.discriminators.get_criterion('is_even', pos_index=[0])
+        is_odd = self.discriminators.get_criterion('is_odd', pos_index=[0])
+        
+        is_even_values = is_even(self.reference_tokens)
+        is_odd_values = is_odd(self.reference_tokens)
+
+        cat_even_and_odd = is_even.concatenate(is_odd)
+        cat_even_and_odd_values = cat_even_and_odd(self.reference_tokens)
+
+        torch.testing.assert_close(
+            cat_even_and_odd_values,
+            torch.cat([is_even_values, is_odd_values], dim=-1)
+        )
+
+    def test_cartesian_product(self):
+        direct_modulo_six_filter = self.discriminators.get_criterion('modulo_six')
+        product_modulo_six_filter, map_vals_to_individual_mod = self.discriminators.cartesian_product(
+            'modulo_two', 'modulo_three', return_value_labels=True
+        )
+        
+        direct_values = direct_modulo_six_filter(self.reference_tokens)
+        product_values = product_modulo_six_filter(self.reference_tokens)
+
+        for val_mod_six, val_mod_six_prod in zip(direct_values.flatten(), product_values.flatten()):
+            val_mod_two, val_mod_three = map_vals_to_individual_mod[val_mod_six_prod.item()]
+            assert (val_mod_six % 2 == val_mod_two) and (val_mod_six % 3 == val_mod_three)
+
 
 class TestBaseTenAdditionCriteria():
     N_DIGITS_ADDEND = 4
