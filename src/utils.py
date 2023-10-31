@@ -11,18 +11,18 @@ from transformer_lens import HookedTransformer
 
 def compute_cross_entropy_loss(logits_at_pos_label: Int[Tensor, 'batch pos'],
                                labels: Int[Tensor, 'batch label'],
-                               reduce: Literal['all', 'labels', 'none'] = 'all',
+                               reduce: Literal['all', 'label', 'none'] = 'all',
                                ) -> float:
     logprobs = logits_at_pos_label.to(torch.float64).log_softmax(-1)
     loss = -logprobs.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1) # [batch, label]
-    if reduce == 'labels':
+    if reduce == 'label':
         return loss.mean(1)
     elif reduce == 'all':
         return loss.mean()
     elif reduce == 'none':
         return loss
     else:
-        raise ValueError(f"reduce must be one of 'all', 'labels', or 'none', but got {reduce}")
+        raise ValueError(f"reduce must be one of 'all', 'label', or 'none', but got '{reduce}'")
 
 def compute_accuracy(logits_at_pos_label: Float[Tensor, 'batch label vocab'],
                      labels: Int[Tensor, 'batch label'],

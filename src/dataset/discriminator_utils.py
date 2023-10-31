@@ -41,7 +41,7 @@ class TokenDiscriminator():
             name=f"{self.name} & {other.name}",
             values={True, False},
             criterion_fn=lambda tokens: broadcast_and_combine_values(
-                self(tokens), other(tokens), torch.logical_and
+                self.criterion_fn(tokens), other.criterion_fn(tokens), torch.logical_and
             ),
             by_pos=self.by_pos or other.by_pos,
         )
@@ -52,7 +52,7 @@ class TokenDiscriminator():
         return TokenDiscriminator(
             name=f"{self.name} | {other.name}",
             criterion_fn=lambda tokens: broadcast_and_combine_values(
-                self(tokens), other(tokens), torch.logical_or
+                self.criterion_fn(tokens), other.criterion_fn(tokens), torch.logical_or
             ),
             values={True, False},
             by_pos=self.by_pos or other.by_pos,
@@ -66,7 +66,7 @@ class TokenDiscriminator():
         return TokenDiscriminator(
             name=f"{self.name} * {other.name}",
             values=product_criterion_values,
-            criterion_fn=lambda tokens: broadcast_and_combine_values(self(tokens), other(tokens), pair_to_unique_int),
+            criterion_fn=lambda tokens: broadcast_and_combine_values(self.criterion_fn(tokens).long(), other.criterion_fn(tokens).long(), pair_to_unique_int),
             by_pos=self.by_pos or other.by_pos
         )
 
@@ -78,11 +78,11 @@ class TokenDiscriminator():
         joined_token_groups = self_token_groups | other_token_groups
 
         def self_call_fn(tokens):
-            values = self(tokens)
+            values = self.criterion_fn(tokens)
             return pair_to_unique_int(values, torch.zeros_like(values))
         
         def other_call_fn(tokens):
-            values = other(tokens)
+            values = other.criterion_fn(tokens)
             return pair_to_unique_int(torch.zeros_like(values), values)
         
         return TokenDiscriminator(
@@ -100,7 +100,7 @@ class TokenDiscriminator():
         return TokenDiscriminator(
             name=f"{self.name} + {other.name}",
             values=joined_token_groups,
-            criterion_fn=lambda tokens: torch.cat([self(tokens), other(tokens)], dim=-1),
+            criterion_fn=lambda tokens: torch.cat([self.criterion_fn(tokens), other.criterion_fn(tokens)], dim=-1),
             by_pos=True,
         )
 
@@ -118,7 +118,7 @@ class TokenDiscriminator():
 
         while not tokens_collector.is_group_complete(criterion_value):
             tokens = token_gen_fn(BATCH_SIZE_PER_ITERATION)
-            token_values = self(tokens)
+            token_values = self.criterion_fn(tokens)
             tokens_group = tokens[token_values == criterion_value]
             tokens_collector.add_to_group(criterion_value, tokens_group)
         
@@ -143,7 +143,7 @@ class TokenDiscriminator():
 
         BATCH_SIZE_PER_ITERATION = 1_000
 
-        reference_group_ids = self(reference_tokens)
+        reference_group_ids = self.criterion_fn(reference_tokens)
         matching_tokens = reference_tokens.new_empty(reference_tokens.shape)
 
         idle_iterations_counter = IdleStateCounter(max_idle_iterations=100)
@@ -152,7 +152,7 @@ class TokenDiscriminator():
 
         while not token_collector.are_groups_complete():
             tokens = token_gen_fn(BATCH_SIZE_PER_ITERATION)
-            tokens_group_ids = self(tokens)
+            tokens_group_ids = self.criterion_fn(tokens)
             
             for group_id in self.criterion_values:
                 tokens_group = tokens[tokens_group_ids == group_id]
@@ -172,7 +172,7 @@ class TokenDiscriminator():
 
         BATCH_SIZE_PER_ITERATION = 1_000
 
-        reference_group_ids = self(reference_tokens)
+        reference_group_ids = self.criterion_fn(reference_tokens)
         reference_group_ids_flat = reference_group_ids.flatten()
 
         matching_tokens = torch.empty(reference_group_ids_flat.shape[0], reference_tokens.shape[1], dtype=torch.long)
@@ -184,7 +184,7 @@ class TokenDiscriminator():
         for group_id in self.criterion_values:
             while not token_collector.is_group_complete(group_id):
                 tokens = token_gen_fn(BATCH_SIZE_PER_ITERATION)
-                token_group_ids = self(tokens)
+                token_group_ids = self.criterion_fn(tokens)
                 
                 is_group_id_at_any_pos = (token_group_ids == group_id).any(dim=-1)
                 tokens_group = tokens[is_group_id_at_any_pos]
@@ -195,7 +195,7 @@ class TokenDiscriminator():
         
         matching_tokens = token_collector.fill_tokens_by_index(matching_tokens)
 
-        bool_group_ids_match_reference = reference_group_ids_flat[:, None] == self(matching_tokens)
+        bool_group_ids_match_reference = reference_group_ids_flat[:, None] == self.criterion_fn(matching_tokens)
         matcthing_pos_idx_flat = torch.multinomial(bool_group_ids_match_reference.float(), num_samples=1).squeeze(-1)
         matching_batch_idx_flat = torch.arange(reference_group_ids_flat.shape[0])
 
@@ -204,8 +204,34 @@ class TokenDiscriminator():
 
         return matching_tokens, matching_batch_idx, matching_pos_idx
 
-    # def get_group_id_to_name_map(self) -> Dict[CRITERIA_OUT_VALUES_TYPE, Any]:
-    #     return {group_id: group_name for group_name, group_id in self.criterion_values.items()}
+
+class MatchingTokens():
+    def __init__(self, tokens: Int[Tensor, 'batch pos'], batch_idx: Int[Tensor, 'batch'], pos_idx: Int[Tensor, 'pos']):
+        self.tokens = tokens
+        self.batch_idx = batch_idx
+        self.pos_idx = pos_idx
+
+    def apply_idx_to_tensor(self, tensor: Tensor, pos_map: Optional[Tensor] = None) -> Tensor:
+        pos_idx = pos_map[self.pos_idx]
+        batch_idx = unsqueeze_at_end(self.batch_idx, ndim_out=pos_idx.ndim)
+        return tensor[batch_idx, pos_idx]
+
+    def apply_pos_map_and_broadcast_to_idx(self, tensor: Tensor, pos_map: Optional[Tensor] = None) -> Tensor:
+        batch_size, pos = self.pos_idx.shape
+        tensor_pos_idx = pos_map[:pos].expand(batch_size, pos)
+
+        batch_idx = unsqueeze_at_end(torch.arange(batch_size), ndim_out=tensor_pos_idx.ndim)
+        return tensor[batch_idx, tensor_pos_idx]
+
+    def get_indexed_tokens(self, pos_map: Optional[Tensor] = None):
+        return self.apply_idx_to_tensor(self.tokens, pos_map)
+    
+def unsqueeze_at_end(tensor: Tensor, ndim_out: int) -> Tensor:
+    ndim_in = tensor.ndim
+    assert ndim_out >= ndim_in
+    extra_dims_shape = (1,) * (ndim_out - ndim_in)
+    return tensor.reshape(*tensor.shape, *extra_dims_shape)
+
 
 def pair_to_unique_int( 
         m: Union[int, Int[Tensor, '...']], 

@@ -1,6 +1,6 @@
 
 import sys
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 import circuitsvis as cv
 import torch
@@ -46,13 +46,15 @@ class DataPlotter():
             loss: Float[Tensor, 'batch'],
             tokens_for_color: Int[Tensor, 'batch pos'],
             color_discriminator: TokenDiscriminator,
+            color_discriminator_labels: Dict[int, Any] = None,
             **kwargs,
             ) -> None:
 
         color_ids = color_discriminator(tokens_for_color)
-        color_names = color_discriminator.get_group_id_to_name_map()
         discriminator_name = color_discriminator.name.replace(' * ', '<br>')
-        scatter(loss, color=color_ids, value_names={'color': color_names}, title='Loss per datapoint',
+        value_names = ({'color': color_discriminator_labels} 
+                       if color_discriminator_labels is not None else dict())
+        scatter(loss, color=color_ids, value_names=value_names, title='Loss per datapoint',
                 labels=dict(y='Loss', index='Datapoint', color=discriminator_name, **kwargs))
 
     def get_logit_attr_for_binary_labels(

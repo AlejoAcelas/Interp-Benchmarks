@@ -6,18 +6,23 @@ from typing import List, Union, Literal, Tuple, Callable, Optional, Iterable, Se
 from functools import partial
 from jaxtyping import Int, Shaped
 from torch import Tensor
+import itertools
+
+from collections.abc import Iterable as IterableABC
 
 from src.dataset.backdoor_utils import create_balanced_parentheses_backdoor
-from src.dataset.discriminator_utils import (TokenDiscriminator)
+from src.dataset.discriminator_utils import (TokenDiscriminator, pair_to_unique_int)
 from src.dataset.tokenizer import (BalanParenTokenizer,
                                    BaseTenAdditionTokenizer, Tokenizer)
 from src.dataset.utils import get_sum_from_tokens
 
 from functools import reduce
 
-def add_criterion_values(criteria_values: List[Union[int, bool]]):
+POS_INDEX_TYPE = Union[List[int], Int[Tensor, 'pos'], int]
+
+def add_criterion_values(criterion_values: List[Union[int, bool]]):
     def decorator(criterion_fn):
-        criterion_fn._criterion_values = criteria_values
+        criterion_fn.criterion_values = criterion_values
         return criterion_fn
     return decorator
 
@@ -29,7 +34,7 @@ class TokenCriteriaCollection():
     def get_criterion(
             self,
             criterion_name: str,
-            pos_index: Optional[Union[List[int], Int[Tensor, 'pos'], int]] = None,
+            pos_index: Optional[POS_INDEX_TYPE] = None,
             num_pad_left: Optional[int] = None,
             num_pad_right: Optional[int] = None,
             **criterion_kwargs
@@ -38,55 +43,45 @@ class TokenCriteriaCollection():
         criterion_name = criterion_fn.__name__
         criterion_fn = partial(criterion_fn, **criterion_kwargs)
 
-        if pos_index is not None:
-            final_criterion_fn = lambda tokens: criterion_fn(tokens)[:, pos_index]
-            criterion_name = f'{criterion_name}@{pos_index}'
-        else:
-            final_criterion_fn = criterion_fn
-
-        test_output = final_criterion_fn(self.tokenizer.get_test_tokens())
+        test_output = criterion_fn(self.tokenizer.get_test_tokens())
         assert test_output.ndim == 1 or test_output.ndim == 2, \
             f'Criterion {criterion_name} must return a 1D or 2D tensor'
+        by_pos = test_output.ndim == 2
         
         discriminator = TokenDiscriminator(
-            final_criterion_fn,
+            criterion_fn,
             values=token_groups,
             name=criterion_name,
-            by_pos=test_output.ndim == 2,
+            by_pos=by_pos,
         )
 
+        discriminator = self._apply_pos_index(discriminator, pos_index)
+
         if num_pad_left is not None:
-            pass
+            raise NotImplementedError()
         if num_pad_right is not None:
-            pass
+            raise NotImplementedError()
 
         return discriminator
     
-    # def pad_criterion_fn(
-    #         self,
-    #         criterion_fn: Callable,
-    #         token_groups: Iterable[Union[bool, int]],
-    #         pad_side: Literal['left', 'right'],
-    #     ) -> Tuple[Callable, Set[Union[bool, int]]]:
-    #     pad_token = self.get_unused_pad_token(token_groups)
-    #     def criterion_fn_padded(tokens: Int[Tensor, 'batch pos']) -> Shaped[Tensor, 'batch pos']:
-    #         batch_size = tokens.shape[0]
-    #         pad_tokens = torch.full((batch_size, 1), pad_token, dtype=torch.long)
-    #         orig_criterion = criterion_fn(tokens)
-    #         if pad_side == 'left':
-    #             return torch.cat([pad_tokens, orig_criterion.long()], dim=-1)
-    #         else:
-    #             return torch.cat([orig_criterion.long(), pad_tokens], dim=-1)
-        
-    #     extended_token_groups = {pad_token} | set(token_groups)
-    #     return criterion_fn_padded, extended_token_groups
+    def _apply_pos_index(
+            self,
+            discriminator: TokenDiscriminator,
+            pos_index: Optional[POS_INDEX_TYPE]
+        ):
+        if pos_index is None or not discriminator.by_pos:
+            return discriminator
 
-    # def get_unused_pad_token(self, token_groups: Iterable[Union[bool, int]]) -> int:
-    #     set_token_groups = set(token_groups)
-    #     pad_token = 0
-    #     while pad_token in set_token_groups:
-    #         pad_token += 1
-    #     return pad_token
+        new_criterion_fn = lambda tokens: discriminator.criterion_fn(tokens)[:, pos_index]
+        new_name = f'{discriminator.name}@{pos_index}'
+        by_pos = isinstance(pos_index, IterableABC)
+        return TokenDiscriminator(
+            new_criterion_fn,
+            values=discriminator.criterion_values,
+            name=new_name,
+            by_pos=by_pos,
+        )
+
     
     def _get_criterion_properties(
             self,
@@ -94,31 +89,69 @@ class TokenCriteriaCollection():
         ) -> Tuple[Callable, List[Union[int, bool]]]:
         try:
             criterion_fn = getattr(self, criterion_name)
-            criterion_values = criterion_fn._criterion_values
+            criterion_values = criterion_fn.criterion_values
         except AttributeError:
             raise AttributeError(f'No criteria named {criterion_name}')
         
         return criterion_fn, criterion_values
-
-    def concatenate(self, *criteria: Union[str, TokenDiscriminator]) -> TokenDiscriminator:
-        discriminators = self._get_criteria_list(*criteria)
-        return reduce(TokenDiscriminator.concatenate, discriminators)
     
-    def cartesian_product(self, *criteria: Union[str, TokenDiscriminator]) -> TokenDiscriminator:
-        discriminators = self._get_criteria_list(*criteria)
-        return reduce(TokenDiscriminator.__mul__, discriminators)
+    def concatenate(self, *criteria: Union[str, TokenDiscriminator], **criteria_kwargs) -> TokenDiscriminator:
+        pos_index = criteria_kwargs.pop('pos_index', None)
+        discriminators = self._get_discriminators_list(*criteria, **criteria_kwargs)
+        discriminator_out = reduce(TokenDiscriminator.concatenate, discriminators)
+        if pos_index is not None:
+            discriminator_out = self._apply_pos_index(discriminator_out, pos_index)
+        return discriminator_out
     
-    def conjunction(self, *criteria: Union[str, TokenDiscriminator]) -> TokenDiscriminator:
-        discriminators = self._get_criteria_list(*criteria)
+    def cartesian_product(
+            self,
+            *criteria: Union[str, TokenDiscriminator],
+            return_value_labels: bool = False,
+            **criteria_kwargs,
+        ) -> TokenDiscriminator:
+        discriminators = self._get_discriminators_list(*criteria, **criteria_kwargs)
+        product_discriminator = reduce(TokenDiscriminator.__mul__, discriminators)
+        
+        if return_value_labels:
+            discriminator_values = [discr.criterion_values for discr in discriminators]
+            product_value_labels = {reduce(pair_to_unique_int, value_combination): value_combination
+                                    for value_combination in itertools.product(*discriminator_values)}
+            return product_discriminator, product_value_labels
+        
+        return product_discriminator
+    
+    def conjunction(self, *criteria: Union[str, TokenDiscriminator], **criteria_kwargs) -> TokenDiscriminator:
+        discriminators = self._get_discriminators_list(*criteria, **criteria_kwargs)
         return reduce(TokenDiscriminator.__and__, discriminators)
     
-    def disjunction(self, *criteria: Union[str, TokenDiscriminator]) -> TokenDiscriminator:
-        discriminators = self._get_criteria_list(*criteria)
+    def disjunction(self, *criteria: Union[str, TokenDiscriminator], **criteria_kwargs) -> TokenDiscriminator:
+        discriminators = self._get_discriminators_list(*criteria, **criteria_kwargs)
         return reduce(TokenDiscriminator.__or__, discriminators)
     
-    def _get_criteria_list(self, *criteria: Union[str, TokenDiscriminator]) -> List[TokenDiscriminator]:
-        return [self.get_criterion(criterion_name) 
-                if isinstance(criterion_name, str) else criterion_name
+    def negation(self, criterion: Union[str, TokenDiscriminator], **criteria_kwargs) -> TokenDiscriminator:
+        orig_discriminator = self.get_criterion(criterion, **criteria_kwargs)
+        return TokenDiscriminator(
+            criterion_fn=lambda tokens: ~orig_discriminator.criterion_fn(tokens),
+            values=orig_discriminator.criterion_values,
+            name=f'~{orig_discriminator.name}',
+            by_pos=orig_discriminator.by_pos,
+        )
+    
+    def _get_discriminators_list(
+            self,
+            *criteria: Union[str, TokenDiscriminator],
+            pos_index: Optional[Union[List[int], Int[Tensor, 'pos'], int]] = None,
+            num_pad_left: Optional[int] = None,
+            num_pad_right: Optional[int] = None,
+            **extra_kwargs,
+            ) -> List[TokenDiscriminator]:
+        assert len(extra_kwargs) == 0, ('Only pos_index, num_pad_left and num_pad_right are' 
+                                        'allowed when creating multiple discriminators.'
+                                        'To pass criterion-specific kwargs use the get_criterion method')
+        
+        return [self.get_criterion(criterion_name, pos_index=pos_index, num_pad_left=num_pad_left, num_pad_right=num_pad_right) 
+                if isinstance(criterion_name, str) 
+                else self._apply_pos_index(criterion_name, pos_index)
                 for criterion_name in criteria]
 
     @add_criterion_values({1})
@@ -129,7 +162,6 @@ class TokenCriteriaCollection():
     ) -> Int[Tensor, 'batch']:
         out_shape = (tokens.shape[0], num_pos) if num_pos is not None else (tokens.shape[0],)
         return torch.ones(out_shape, dtype=torch.long)
-    
 
 
 # %%
@@ -139,15 +171,14 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
         'sum_tokens',
         'sum_tokens_with_backdoor',
         'sum_no_modulo',
-        'sum_no_modulo_repeated_last_sum',
-        'sum_no_modulo_with_zeroth_level_carry',
-        'sum_modulo_but_no_carry_repeated_last_sum',
         'is_only_five_or_zeros',
-        'always_true',
+        'sum_no_modulo_with_zeroth_level_carry',
         'position',
         'carry_history',
         'addend1',
         'addend2',
+        'contains_carry_at_depth',
+        'contains_any_carry',
     ]
     CRITERIA_OBJECT_TYPE = Union[TokenDiscriminator, CRITERIA_NAME_TYPE]
     COUNT_DIGITS = 10
@@ -158,14 +189,14 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
     def get_criterion(self, criterion_name: CRITERIA_NAME_TYPE, **kwargs) -> TokenDiscriminator:
         return super().get_criterion(criterion_name, **kwargs)
     
-    def cartesian_product(self, *criteria: CRITERIA_OBJECT_TYPE) -> TokenDiscriminator:
-        return super().cartesian_product(*criteria)
+    def cartesian_product(self, *criteria: CRITERIA_OBJECT_TYPE, return_value_labels: bool = False, **kwargs) -> TokenDiscriminator:
+        return super().cartesian_product(*criteria, return_value_labels=return_value_labels, **kwargs)
     
-    def conjunction(self, *criteria: CRITERIA_OBJECT_TYPE) -> TokenDiscriminator:
-        return super().conjunction(*criteria)
+    def conjunction(self, *criteria: CRITERIA_OBJECT_TYPE, **kwargs) -> TokenDiscriminator:
+        return super().conjunction(*criteria, **kwargs)
     
-    def disjunction(self, *criteria: CRITERIA_OBJECT_TYPE) -> TokenDiscriminator:
-        return super().disjunction(*criteria)
+    def disjunction(self, *criteria: CRITERIA_OBJECT_TYPE, **kwargs) -> TokenDiscriminator:
+        return super().disjunction(*criteria, **kwargs)
     
     @add_criterion_values(range(COUNT_DIGITS))
     def sum_tokens(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_sum']:
@@ -186,17 +217,6 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
         addend1, addend2 = self.tokenizer.get_addends_from_tokens(tokens)
         sum_by_digit = addend1 + addend2
         return sum_by_digit
-    
-    @add_criterion_values(range(2*COUNT_DIGITS))
-    def sum_no_modulo_repeated_last_sum(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_sum']:
-        sum_by_digit = self.sum_no_modulo(tokens)
-        last_sum = sum_by_digit[:, -1:]
-        return torch.cat([sum_by_digit, last_sum], dim=-1)
-    
-    @add_criterion_values(range(COUNT_DIGITS))
-    def sum_modulo_but_no_carry_repeated_last_sum(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_addend']:
-        sum_by_digit = self.sum_no_modulo_repeated_last_sum(tokens)
-        return sum_by_digit % 10
     
     @add_criterion_values(range(2**6))
     def carry_history(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_sum']:
@@ -237,6 +257,7 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
         _, addend2 = self.tokenizer.get_addends_from_tokens(tokens)
         return addend2
 
+    @add_criterion_values({True, False})
     def contains_carry_at_depth(
             self,
             tokens: Int[Tensor, 'batch pos'],
@@ -253,7 +274,14 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
         
         return carry_at_depth
     
-    
+    @add_criterion_values({True, False})
+    def contains_any_carry(
+            self,
+            tokens: Int[Tensor, 'batch pos'],
+    ) -> Bool[Tensor, 'batch']:
+        carry_matrix = self.get_carry_matrix(tokens)
+        return carry_matrix.any(dim=-1).any(dim=-1) # any pos at any depth
+
     def get_carry_matrix(
             self,
             tokens: Int[Tensor, 'batch pos'],
@@ -304,12 +332,12 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
                     matches_pattern &= ~carry_matrix[:, other_pos_idx, carry_depth].any(dim=1)
             return matches_pattern
         
-        return TokenDiscriminator(evaluate_fn=has_carry_pattern, values={True, False})
+        return TokenDiscriminator(criterion_fn=has_carry_pattern, values={True, False})
 
 # %%
 
 
-class BalanParenTokenCriteriaCollection():
+class BalanParenTokenCriteriaCollection(TokenCriteriaCollection):
     CRITERIA_NAME_TYPE = Literal[
         'is_balanced',
         'is_above_horizon',
@@ -322,6 +350,8 @@ class BalanParenTokenCriteriaCollection():
         'is_balanced_with_backdoor',
         'count_flip_distance_to_backdoor',
         'sign_parentheses_count',
+        'is_open_after_horizon_dip',
+        'is_open_k_toks_after_horizon_dip',
         'always_true',
         'is_open',
         'position',
@@ -336,15 +366,14 @@ class BalanParenTokenCriteriaCollection():
     def get_criterion(self, criterion_name: CRITERIA_NAME_TYPE, **kwargs) -> TokenDiscriminator:
         return super().get_criterion(criterion_name, **kwargs)
     
-    def cartesian_product(self, *criteria: CRITERIA_OBJECT_TYPE) -> TokenDiscriminator:
-        return super().cartesian_product(*criteria)
+    def cartesian_product(self, *criteria: CRITERIA_OBJECT_TYPE, return_value_labels: bool = False, **kwargs) -> TokenDiscriminator:
+        return super().cartesian_product(*criteria, return_value_labels=return_value_labels, **kwargs)
     
-    def conjunction(self, *criteria: CRITERIA_OBJECT_TYPE) -> TokenDiscriminator:
-        return super().conjunction(*criteria)
+    def conjunction(self, *criteria: CRITERIA_OBJECT_TYPE, **kwargs) -> TokenDiscriminator:
+        return super().conjunction(*criteria, **kwargs)
     
-    def disjunction(self, *criteria: CRITERIA_OBJECT_TYPE) -> TokenDiscriminator:
-        return super().disjunction(*criteria)
-    
+    def disjunction(self, *criteria: CRITERIA_OBJECT_TYPE, **kwargs) -> TokenDiscriminator:
+        return super().disjunction(*criteria, **kwargs)
     
     @add_criterion_values({True, False})
     def is_balanced(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch']:
@@ -364,6 +393,21 @@ class BalanParenTokenCriteriaCollection():
         diff_open_closed_paren = self.count_diff_open_to_closed_paren(tokens)
         return diff_open_closed_paren[:, -1] == 0
     
+    @add_criterion_values({True, False})
+    def is_open_after_horizon_dip(self, tokens: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch pos']:
+        is_below_horizon = ~self.is_pos_above_horizon(tokens)
+        is_open = self.is_open(tokens)
+        is_after_horizon_dip = is_below_horizon.int().cumsum(dim=-1) > 0
+        return is_open & is_after_horizon_dip
+
+    @add_criterion_values({True, False})
+    def is_open_k_toks_after_horizon_dip(self, tokens: Int[Tensor, 'batch pos'], k: int) -> Bool[Tensor, 'batch pos']:
+        is_below_horizon = ~self.is_pos_above_horizon(tokens)
+        is_below_horizon_padded = torch.nn.functional.pad(is_below_horizon, pad=(k-1, 0), value=False)
+        is_last_k_below_horizon = is_below_horizon_padded.unfold(dimension=-1, size=k, step=1).any(dim=-1)
+        is_open = self.is_open(tokens)
+        return is_open & is_last_k_below_horizon
+
     @add_criterion_values(range(-20, 20))
     def count_diff_open_to_closed_paren(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch pos']:
         num_open_tokens = (tokens == self.tokenizer.OPEN).long().cumsum(dim=-1)

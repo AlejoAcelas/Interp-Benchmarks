@@ -1,7 +1,7 @@
 
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union, Literal
 
 import torch
 from jaxtyping import Float, Int
@@ -10,9 +10,10 @@ from transformer_lens import ActivationCache, HookedTransformer
 from transformer_lens.hook_points import HookPoint
 
 from src.dataset.dataset import AlgorithmicDataConstructor
-from src.dataset.discriminators import TokenDiscriminator, TokenDiscriminatorByPos
+from src.dataset.discriminators import TokenDiscriminator
 from src.utils import compute_cross_entropy_loss
 
+torch.set_grad_enabled(False)
 # Hooks
 
 TENSOR_INDEX_TYPE = Union[Int[Tensor, 'dim'], slice, int]
@@ -28,7 +29,7 @@ def patch_from_cache(
         pos_idx: Optional[TENSOR_INDEX_TYPE] = slice(None),
         head_idx: Optional[TENSOR_INDEX_TYPE] = None,
         ) -> Float[Tensor, 'batch pos ...']:
-    activations[:, pos_idx] = cache[hook.name][:, pos_idx]
+    activations[:, pos_idx, head_idx] = cache[hook.name][:, pos_idx, head_idx]
     return activations
 
 def patch_from_cache_different_batch_size(
@@ -72,14 +73,19 @@ class CausalScrubbing():
     def run_causal_scrubbing(
             self,
             end_nodes: List['ScrubbingNode'],
-            save_matching_tokens: bool = False,
             patch_on_orig_tokens: bool = False,
+            reduce_loss: Literal['label', 'none', 'all'] = 'label',
             ) -> Tuple[LOSS_TENSOR_TYPE, LOSS_TENSOR_TYPE, LOSS_TENSOR_TYPE]:
+        
         final_hooks = []
         for node in end_nodes:
-            final_hooks.extend(self.get_node_hooks(node, self.orig_tokens,
-                                                   save_matching_tokens=save_matching_tokens))
-        return self.compute_causal_scrubbing_losses(final_hooks, patch_on_orig_tokens=patch_on_orig_tokens)
+            final_hooks.extend(self.get_node_hooks(node, self.orig_tokens))
+        
+        return self.compute_causal_scrubbing_losses(
+            final_hooks,
+            patch_on_orig_tokens=patch_on_orig_tokens,
+            reduce=reduce_loss,
+        )
 
     def get_node_hooks(
             self,
@@ -112,30 +118,29 @@ class CausalScrubbing():
             self,
             hooks: List[HOOK_TYPE],
             patch_on_orig_tokens: bool = False,
+            reduce: Literal['label', 'none', 'all'] = 'label',
             ) -> Tuple[LOSS_TENSOR_TYPE, LOSS_TENSOR_TYPE, LOSS_TENSOR_TYPE]:
         alter_tokens = self.orig_tokens if patch_on_orig_tokens else self.default_tokens
+        batch_size = self.orig_tokens.shape[0]
         orig_logits = self.model(self.orig_tokens)
         patched_logits = self.model.run_with_hooks(alter_tokens, fwd_hooks=hooks)
+        permuted_logits = orig_logits[torch.randperm(batch_size)]
 
         orig_labels = self.data_constructor.get_token_labels(self.orig_tokens)
-        permuted_labels = orig_labels[torch.randperm(orig_labels.shape[0])]
-
-        orig_loss = self.compute_loss(orig_logits, labels=orig_labels, reduce='labels')
-        patched_loss = self.compute_loss(patched_logits, labels=orig_labels, reduce='labels')
-        random_loss = self.compute_loss(orig_logits, labels=permuted_labels, reduce='labels')
-
-        return orig_loss, patched_loss, random_loss
+        loss_fn = partial(self.compute_loss, labels=orig_labels, reduce=reduce)
+        return loss_fn(orig_logits), loss_fn(patched_logits), loss_fn(permuted_logits)
     
     def compute_loss(
             self,
             logits: Float[Tensor, 'batch pos vocab'],
             labels: Int[Tensor, 'batch label'],
-            reduce: str = 'all',
+            reduce: str = Literal['all', 'none', 'label'],
             ) -> Union[float, LOSS_TENSOR_TYPE]:
         label_pos = self.data_constructor.tokenizer.get_label_pos()
         logits_at_pos_label = logits[:, label_pos]
         labels = labels.to(logits_at_pos_label.device)
         loss = compute_cross_entropy_loss(logits_at_pos_label, labels, reduce=reduce)
+
         return loss.item() if reduce == 'all' else loss.squeeze()
 
     def compute_recovered_loss_float(
@@ -196,6 +201,7 @@ class ScrubbingNode():
             tokens: Int[Tensor, 'batch pos'],
             token_gen_fn: Callable[[int], Int[Tensor, 'batch pos']],
         ) -> Int[Tensor, 'batch2 pos']:
+        assert not self.discriminator.by_pos, 'Discriminator must be output single pos'
         self.matching_tokens = self.discriminator.gen_matching_tokens(tokens, token_gen_fn)
         return self.matching_tokens
 
@@ -217,12 +223,12 @@ class ScrubbingNodeByPos(ScrubbingNode):
     def __init__(
             self,
             activation_name: Union[str, List[str]],
-            discriminator: Optional[TokenDiscriminatorByPos] = None,
+            discriminator: Optional[TokenDiscriminator] = None,
             pos_map: Optional[Int[Tensor, 'disc_pos *num_pos']] = None,
             parents: Optional[List['ScrubbingNode']] = None,
             head_idx: Optional[int] = None,
     ):
-        assert discriminator is None or isinstance(discriminator, TokenDiscriminatorByPos), 'Discriminator must be a TokenDiscriminatorByPos or None'
+        assert discriminator is None or discriminator.by_pos, 'Discriminator must be output multiple pos or be None'
         super().__init__(activation_name, discriminator, pos_idx=None, parents=parents, head_idx=head_idx)
 
         self.pos_map = pos_map
