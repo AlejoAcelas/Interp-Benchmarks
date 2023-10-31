@@ -1,4 +1,4 @@
 **__pycache__/
-models/*
+models/sweeps
 **/wandb/*
 *.pytest_cache/*
