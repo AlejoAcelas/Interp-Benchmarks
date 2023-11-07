@@ -2,3 +2,4 @@
 models/sweeps
 **/wandb/*
 *.pytest_cache/*
+**.vscode
