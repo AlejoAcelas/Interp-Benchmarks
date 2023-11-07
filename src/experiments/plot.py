@@ -39,7 +39,7 @@ class DataPlotter():
             heads=head_list,
             attention_type='info-weighted',
             return_mode='view'
-            )
+        )
 
     def plot_scatter_loss_by_category(
             self,

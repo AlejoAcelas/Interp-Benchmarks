@@ -179,6 +179,7 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
         'addend2',
         'contains_carry_at_depth',
         'contains_any_carry',
+        'contains_any_carry_by_pos',
     ]
     CRITERIA_OBJECT_TYPE = Union[TokenDiscriminator, CRITERIA_NAME_TYPE]
     COUNT_DIGITS = 10
@@ -220,13 +221,9 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
     
     @add_criterion_values(range(2**6))
     def carry_history(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_sum']:
-        batch_size = tokens.shape[0]
-        carry_matrix = self.get_carry_matrix(tokens)
+        carry_matrix = self.get_carry_matrix(tokens, include_units_digit=True)
         powers_of_two = 2 ** torch.arange(self.tokenizer.n_digits_addend)
         carry_history = (carry_matrix * powers_of_two).sum(dim=-1)
-
-        pad_zeros_units_pos = torch.zeros(batch_size, 1, dtype=torch.bool)
-        carry_history = torch.cat([pad_zeros_units_pos, carry_history], dim=-1)
         return carry_history
 
     @add_criterion_values(range(2*COUNT_DIGITS))
@@ -262,16 +259,9 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
             self,
             tokens: Int[Tensor, 'batch pos'],
             depth: int,
-            pad_for_sum: bool = True,
         ) -> Bool[Tensor, 'batch n_digits_sum']:
-        batch_size = tokens.shape[0]
-        carry_matrix = self.get_carry_matrix(tokens)
+        carry_matrix = self.get_carry_matrix(tokens, include_units_digit=True)
         carry_at_depth = carry_matrix[..., depth]
-        
-        if pad_for_sum:
-            pad_zeros_units_pos = torch.zeros(batch_size, 1, dtype=torch.bool)
-            carry_at_depth = torch.cat([pad_zeros_units_pos, carry_at_depth], dim=-1)
-        
         return carry_at_depth
     
     @add_criterion_values({True, False})
@@ -279,17 +269,27 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
             self,
             tokens: Int[Tensor, 'batch pos'],
     ) -> Bool[Tensor, 'batch']:
-        carry_matrix = self.get_carry_matrix(tokens)
+        carry_matrix = self.get_carry_matrix(tokens, include_units_digit=True)
         return carry_matrix.any(dim=-1).any(dim=-1) # any pos at any depth
+    
+    @add_criterion_values({True, False})
+    def contains_any_carry_by_pos(
+            self,
+            tokens: Int[Tensor, 'batch pos'],
+    ) -> Bool[Tensor, 'batch']:
+        carry_matrix = self.get_carry_matrix(tokens, include_units_digit=True)
+        return carry_matrix.any(dim=-1) # at any depth
 
     def get_carry_matrix(
             self,
             tokens: Int[Tensor, 'batch pos'],
+            include_units_digit: bool = False,
         ) -> Bool[Tensor, 'batch']:
         addend1, addend2 = self.tokenizer.get_addends_from_tokens(tokens)
         batch_size, n_digits_addend = addend1.shape
 
         sum_by_digit = addend1 + addend2
+        
         carry_matrix = torch.zeros(batch_size, n_digits_addend, n_digits_addend, dtype=torch.bool)
         
         for depth_carry in range(n_digits_addend):
@@ -298,6 +298,11 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
             sum_by_digit = sum_by_digit % 10
             sum_by_digit[:, 1:] += carry_at_depth[:, :-1].long() # propagate carry to next digit
 
+        if include_units_digit:
+            expanded_carry_matrix = torch.zeros(batch_size, n_digits_addend + 1, n_digits_addend, dtype=torch.bool)
+            expanded_carry_matrix[:, 1:, :] = carry_matrix
+            carry_matrix = expanded_carry_matrix
+            
         return carry_matrix
     
     def create_sum_at_pos_discriminator(
