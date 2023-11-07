@@ -1,5 +1,6 @@
 # %%
 import sys
+import os
 
 from src.dataset.tokenizer import BaseTenAdditionTokenizer
 from src.dataset.dataset import BaseTenAdditionDataConstructor
@@ -30,6 +31,7 @@ discriminators: BaseTenAdditionTokenCriteriaCollection = data_constructor.discri
 
 LABEL_POS = tokenizer.get_label_pos()
 ADDENDS_POS = tokenizer.get_numeric_pos()
+figures_dir = os.getcwd() + '/figures/'
 
 # %% Attn Patterns
 
@@ -39,23 +41,33 @@ plotter.plot_attn_patterns(tokens)
 
 # %% 
 
-tokens = data_constructor.gen_tokens(100)
+tokens = data_constructor.gen_tokens(1000)
 _, cache = model.run_with_cache(tokens)
 attn_pattern = cache.stack_activation('pattern')
 attn_pattern = einops.rearrange(
     attn_pattern[..., LABEL_POS, :], 'layer batch head q k -> batch (layer head) q k'
 )
-
 mean_attn_pattern = attn_pattern.mean(dim=0)
-attn_pattern_norm = (attn_pattern - mean_attn_pattern) / mean_attn_pattern
+get_labels_variable = lambda var, num : [f'{var}<sub>{i}</sub>' for i in range(1, num+1)]
 
+fig = imshow(
+    mean_attn_pattern.transpose(1, 2),
+    facet_col=0,
+    x=get_labels_variable('z', 5),
+    y=['START'] + get_labels_variable('x', 4) + get_labels_variable('y', 4) + get_labels_variable('z', 5),
+    facet_labels=[f'Head {layer}.{head}' for layer in range(2) for head in range(2)],
+    labels=dict(color='Attention<br>probability'),
+    color_continuous_scale='Greens',
+    range_color=[0, 1],
+    title='Average attention pattern from label positions for<br>Normal Model',
+    return_fig=True,
+)
 
-# violin(attn_pattern_norm, color='first', x='first')
-imshow(mean_attn_pattern, facet_col=0, color_continuous_scale='Rdbu_r')
+fig.write_image(figures_dir + 'attn_all_mean.png', scale=6, width=500)
 
 # %% SVD Scatter Plots
 
-layer, head = 0, 0
+layer, head = 1, 0
 data_constructor.set_seed(0)
 
 tokens = data_constructor.gen_tokens(500)
@@ -73,15 +85,17 @@ sum_with_no_carry = addend1 + addend2
 sum_with_carry = discriminators.sum_tokens(tokens)
 
 # %%
-pos_to_plot = 1
-U, S, V = head_result[:, pos_to_plot].svd()
-line(S, labels=dict(x='Singular Value', y='Value'), title=f'Singular Values for H{layer}.{head} at position {pos_to_plot}')
+# pos_to_plot = 1
+# U, S, V = head_result[:, pos_to_plot].svd()
+# line(S, labels=dict(x='Singular Value', y='Value'), title=f'Singular Values for H{layer}.{head} at position {pos_to_plot}')
 
 
 # %%
 pos_to_plot = 1
 token_addend1 = addend1[:, pos_to_plot]
 token_addend2 = addend2[:, pos_to_plot]
+carry_first = discriminators.contains_carry_at_depth(tokens, depth=0)
+any_carry = discriminators.contains_any_carry_by_pos(tokens)
 
 # scatter(
 #     svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
@@ -95,34 +109,71 @@ token_addend2 = addend2[:, pos_to_plot]
 #     labels=dict(color=f'Addend 2 at {pos_to_plot}'),
 #     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}'
 # )
-scatter(
-    svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
-    dim_labels=['Batch'], color=sum_with_no_carry[:, pos_to_plot], 
-    addend1=token_addend1, addend2=token_addend2,
-    labels=dict(color=f'Sum at {pos_to_plot}'),
-    title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-    color_continuous_scale='Turbo',
-)
 
-scatter(
-    svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
-    dim_labels=['Batch', 'SVD Comp1', 'SVD Comp2'], 
-    color=sum_with_no_carry[:, pos_to_plot, None, None], 
-    facet_col='SVD Comp1', facet_row='SVD Comp2',
-    labels=dict(color=f'Sum at {pos_to_plot}'),
-    title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-    color_continuous_scale='Turbo', height=1000, width=1000,
-)
+if layer == 0 and head == 0:
+    scatter(
+        svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
+        dim_labels=['Batch'],
+        color=sum_with_no_carry[:, pos_to_plot], 
+        # addend1=token_addend1, addend2=token_addend2,
+        labels=dict(color=f'Sum at {pos_to_plot}'),
+        title=f'SVD Components for H{layer}.{head} at END{pos_to_plot}',
+        color_continuous_scale='Turbo',
+    )
 
-scatter(
-    svd_head_combined[:, :4, :, None], svd_head_combined[:, :4, None, :],
-    dim_labels=['Batch', 'Sum Position', 'SVD Comp1', 'SVD Comp2'], 
-    color=sum_with_no_carry[:, :, None, None], 
-    facet_col='SVD Comp1', facet_row='SVD Comp2',
-    labels=dict(color=f'Sum at {pos_to_plot}'),
-    title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-    color_continuous_scale='Turbo', height=1000, width=1000,
-)
+if layer == 0 and head == 1:
+    fig = scatter(
+        svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
+        dim_labels=['Batch'],
+        color=sum_with_no_carry[:, pos_to_plot], 
+        symbol=carry_first[:, pos_to_plot], 
+        # addend1=token_addend1, addend2=token_addend2,
+        labels=dict(color=f'Sum at {pos_to_plot}', symbol='<br><br> '),
+        value_names=dict(symbol=[' ', '  ']),
+        title=f'SVD Components for H{layer}.{head} at END{pos_to_plot}',
+        color_continuous_scale='Turbo',
+        return_fig=True,
+    )
+    fig.write_image(figures_dir + f'svd_scatter_h{layer}{head}.png', scale=6, width=500)
+
+if layer == 1 and head == 0:
+    fig = scatter(
+        svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
+        dim_labels=['Batch'],
+        color=sum_with_carry[:, pos_to_plot],
+        # color=any_carry[:, pos_to_plot],
+        # addend1=token_addend1, addend2=token_addend2,
+        labels=dict(color=f'Sum at {pos_to_plot}'),
+        title=f'SVD Components for H{layer}.{head} at END{pos_to_plot}',
+        color_continuous_scale='Turbo',
+        # return_fig=True,
+    )
+    # fig.write_image(figures_dir + f'svd_scatter_h{layer}{head}.png', scale=6, width=500)
+
+
+
+# scatter(
+# svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
+# dim_labels=['Batch', 'SVD Comp1', 'SVD Comp2'], 
+# color=any_carry[:, pos_to_plot, None, None], 
+# facet_col='SVD Comp1', facet_row='SVD Comp2',
+# labels=dict(color=f'Sum at {pos_to_plot}'),
+# title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
+# color_continuous_scale='Turbo', height=1000, width=1000,
+# )
+
+
+# scatter(
+#     svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
+#     dim_labels=['Batch', 'SVD Comp1', 'SVD Comp2'], 
+#     color=sum_with_no_carry[:, pos_to_plot, None, None], 
+#     facet_col='SVD Comp1', facet_row='SVD Comp2',
+#     labels=dict(color=f'Sum at {pos_to_plot}'),
+#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
+#     color_continuous_scale='Turbo', height=1000, width=1000,
+# )
+
+
 
 # scatter(
 #     svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],

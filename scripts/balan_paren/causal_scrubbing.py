@@ -38,44 +38,28 @@ plotter = DataPlotter(data_cons, model)
 
 # %%
 
-BATCH_SIZE = 1_000
+BATCH_SIZE = 3_000
 END_POS = data_cons.tokenizer.get_label_pos()
 NUMERIC_POS = data_cons.tokenizer.get_numeric_pos()
 
 token_generator = data_cons.gen_tokens
 scrubber = CausalScrubbing(data_cons, model, token_generator, batch_size=BATCH_SIZE)
 
-# %%
-
-
 # %% 
 
 discriminators_H00_to_H10_out_end = [
-    # discriminators.cartesian_product(
-    #     discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
-    #     'is_last_paren_closed'
-    # ),
     None,
+    discriminators.cartesian_product(
+        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        'is_last_paren_closed'
+    ),
 ]
 
 discriminators_H00_out_paren = [
-    # discriminators.get_criterion('is_above_horizon'),
-    # discriminators.cartesian_product(
-    #     'position',
-    #     'sign_parentheses_count',
-    #     'is_open_after_horizon_dip',
-    #     pos_index=NUMERIC_POS
-    # ),
     discriminators.cartesian_product(
         'position',
         'sign_parentheses_count',
-        'is_open_after_horizon_dip',
-        pos_index=NUMERIC_POS
-    ),
-    discriminators.cartesian_product(
-        'position',
-        'sign_parentheses_count',
-        discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=2),
+        discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=6),
         pos_index=NUMERIC_POS
     ),
     discriminators.cartesian_product(
@@ -87,21 +71,9 @@ discriminators_H00_out_paren = [
     discriminators.cartesian_product(
         'position',
         'sign_parentheses_count',
-        discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=6),
         pos_index=NUMERIC_POS
     ),
-    discriminators.cartesian_product(
-        'position',
-        'sign_parentheses_count',
-        discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=8),
-        pos_index=NUMERIC_POS
-    ),
-    discriminators.cartesian_product(
-        'position',
-        'sign_parentheses_count',
-        discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=20),
-        pos_index=NUMERIC_POS
-    ),
+    None,
 ]
 
 discriminators_H00_out_end = [
@@ -150,19 +122,11 @@ for disc_combination in discriminator_combinations:
         parents=[]
     )
     
-    if disc_combination[1].by_pos:
-        node_class = ScrubbingNodeByPos
-        pos_args = dict(pos_map=NUMERIC_POS)
-    else:
-        node_class = ScrubbingNode
-        pos_args = dict(pos_idx=NUMERIC_POS) 
-    
-    node_H00_out_paren = node_class(
-        activation_name=get_act_name('resid_post', layer=0), # 98%
-        # activation_name=[get_act_name('resid_post', layer=0)], # 80%
+    node_H00_out_paren = ScrubbingNodeByPos(
+        activation_name=get_act_name('resid_post', layer=0),
         discriminator=disc_combination[1],
+        pos_map=NUMERIC_POS,
         parents=[],
-        **pos_args,
     )
 
     node_H00_out_end = ScrubbingNode(

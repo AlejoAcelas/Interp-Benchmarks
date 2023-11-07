@@ -163,7 +163,8 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         discriminator=disc_combination[2],
         pos_map=LABEL_POS[scrubbing_pos],
         head_idx=1,
-        parents=[node_H00_out, node_H01_out, node_attn_patterns, node_L0_out_addend_pos]
+        parents=[node_H00_out, node_H01_out, node_attn_patterns],
+        # parents=[node_H00_out, node_H01_out, node_attn_patterns, node_L0_out_addend_pos],
     )
 
     node_H10_out = ScrubbingNodeByPos(

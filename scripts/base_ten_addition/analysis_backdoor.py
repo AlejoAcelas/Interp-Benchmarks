@@ -31,6 +31,7 @@ discriminators: BaseTenAdditionTokenCriteriaCollection = data_constructor.discri
 
 LABEL_POS = tokenizer.get_label_pos()
 ADDENDS_POS = tokenizer.get_numeric_pos()
+figures_dir = 'figures/'
 
 # %% Attn Patterns
 
@@ -39,6 +40,33 @@ tokens = generators_bdoor.gen_backdoor_tokens(10)
 # tokens = generators_bdoor.gen_backdoor_tokens(10)
 # tokens = generators.gen_carry_tokens(10, carry_depth=3)
 plotter.plot_attn_patterns(tokens)
+
+# %% 
+
+tokens = data_constructor.gen_tokens(1000)
+_, cache = model.run_with_cache(tokens)
+attn_pattern = cache.stack_activation('pattern')
+attn_pattern = einops.rearrange(
+    attn_pattern[..., LABEL_POS, :], 'layer batch head q k -> batch (layer head) q k'
+)
+mean_attn_pattern = attn_pattern.mean(dim=0)
+get_labels_variable = lambda var, num : [f'{var}<sub>{i}</sub>' for i in range(1, num+1)]
+
+fig = imshow(
+    mean_attn_pattern.transpose(1, 2),
+    facet_col=0,
+    x=get_labels_variable('z', 5),
+    y=['START'] + get_labels_variable('x', 4) + get_labels_variable('y', 4) + get_labels_variable('z', 5),
+    facet_labels=[f'Head {layer}.{head}' for layer in range(2) for head in range(2)],
+    labels=dict(color='Attention<br>probability'),
+    color_continuous_scale='Greens',
+    range_color=[0, 1],
+    title='Average attention pattern from label positions for<br>Backdoor Model',
+    return_fig=True,
+)
+
+fig.write_image(figures_dir + 'attn_all_mean_bdoor.png', scale=6, width=500)
+
 
 # %% SVD Scatter Plots
 

@@ -24,7 +24,7 @@ model = load_model('final/addition4-l2_h2_d64_m4-1000.pt', data_constructor)
 tokenizer: BaseTenAdditionTokenizer = data_constructor.tokenizer
 discriminators: BaseTenAdditionTokenCriteriaCollection = data_constructor.discriminators
 
-BATCH_SIZE = 1000
+BATCH_SIZE = 500
 N_CTX = data_constructor.tokenizer.get_sequence_length()
 
 NUMERIC_POS = tokenizer.get_numeric_pos()
@@ -81,10 +81,20 @@ discs_H10_out = [
         'sum_tokens', 'carry_history', 'position',
         pos_index=scrubbing_pos,
     ),
+    discriminators.cartesian_product(
+        'sum_tokens', 'contains_any_carry_by_pos', 'position',
+        pos_index=scrubbing_pos,
+    ),
 ]
 
 discs_H11_out = [
     discriminators.get_criterion('ones'),
+    # discriminators.cartesian_product(
+    #     'sum_tokens',
+    #     'carry_history',
+    #     'position',
+    #     pos_index=scrubbing_pos,
+    # ),
 ]
 
 # %%
@@ -126,7 +136,7 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         discriminator=disc_combination[0],
         pos_map=LABEL_POS[scrubbing_pos],
         head_idx=0,
-        parents=[node_attn_patterns]
+        # parents=[node_attn_patterns]
     )
 
     node_H01_out = ScrubbingNodeByPos(
@@ -134,7 +144,7 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         discriminator=disc_combination[1],
         pos_map=LABEL_POS[scrubbing_pos],
         head_idx=1,
-        parents=[node_attn_patterns]
+        # parents=[node_attn_patterns]
     )
 
     node_H10_out = ScrubbingNodeByPos(
@@ -142,7 +152,8 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         discriminator=disc_combination[2],
         pos_map=LABEL_POS[scrubbing_pos],
         head_idx=0,
-        parents=[node_H00_out, node_H01_out, node_attn_patterns, node_L0_out_addend_pos]
+        # parents=[node_H00_out, node_H01_out, node_attn_patterns, node_L0_out_addend_pos]
+        parents=[node_H00_out, node_H01_out, node_L0_out_addend_pos]
     )
 
     node_H11_out = ScrubbingNode(
@@ -150,7 +161,7 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         discriminator=disc_combination[3],
         pos_idx=LABEL_POS[scrubbing_pos],
         head_idx=1,
-        parents=[node_attn_patterns, node_L0_out_addend_pos]
+        parents=[node_L0_out_addend_pos]
     )
 
     loss_orig, loss_patch, loss_random = scrubber.run_causal_scrubbing(
@@ -161,7 +172,7 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
             node_H11_out,
         ],
         # reduce_loss='none',
-        # patch_on_orig_tokens=True,
+        patch_on_orig_tokens=True,
     )
 
     recovered_loss = scrubber.compute_recovered_loss_float(loss_orig, loss_patch, loss_random)

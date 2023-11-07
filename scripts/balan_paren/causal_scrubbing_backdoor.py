@@ -31,47 +31,40 @@ model_file = 'final/bal_paren_20_bdoor-l2_h1_d16_m4-1000.pt'
 
 data_cons = BackdoorBalanParenDataConstructor(n_ctx_numeric=20)
 data_cons_no_bdoor = BalanParenDataConstructor(n_ctx_numeric=20)
-model = load_model(model_file, data_cons_no_bdoor)
+model = load_model(model_file, data_cons)
 
-tokenizer = data_cons_no_bdoor.tokenizer
-discriminators = data_cons_no_bdoor.discriminators
-plotter = DataPlotter(data_cons_no_bdoor, model)
+tokenizer = data_cons.tokenizer
+discriminators = data_cons.discriminators
+plotter = DataPlotter(data_cons, model)
 
 # %%
 
-BATCH_SIZE = 1_000
+BATCH_SIZE = 3_000
 OVERSAMPLE_BACKDOOR_PROBS = [0.5, 0.25, 0.125, 0.125]
 
-END_POS = data_cons_no_bdoor.tokenizer.get_label_pos()
-NUMERIC_POS = data_cons_no_bdoor.tokenizer.get_numeric_pos()
+END_POS = data_cons.tokenizer.get_label_pos()
+NUMERIC_POS = data_cons.tokenizer.get_numeric_pos()
 
-token_generator = data_cons_no_bdoor.gen_tokens
+token_generator = data_cons.gen_tokens
 # token_generator = partial(
 #     data_cons.gen_tokens_from_train_generators,
 #     generator_probs=OVERSAMPLE_BACKDOOR_PROBS
 # )
-scrubber = CausalScrubbing(data_cons_no_bdoor, model, token_generator, batch_size=BATCH_SIZE)
+scrubber = CausalScrubbing(data_cons, model, token_generator, batch_size=BATCH_SIZE)
 # %%
 
 discriminators_H00_to_H10_out_end = [
     discriminators.cartesian_product(
         discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
-        'is_last_paren_closed'
-
+        'is_last_paren_closed',
     ),
-    None,
 ]
 
 discriminators_H00_out_paren = [
-    # discriminators.get_criterion('is_above_horizon'),
-    # discriminators.cartesian_product(
-    #     'sign_parentheses_count',
-    #     'position',
-    #     pos_index=NUMERIC_POS,
-    # ),
     discriminators.cartesian_product(
         'position',
         'sign_parentheses_count',
+        'starts_with_backdoor',
         discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=6),
         pos_index=NUMERIC_POS
     ),
@@ -80,17 +73,25 @@ discriminators_H00_out_paren = [
 discriminators_H00_out_end = [
     discriminators.cartesian_product(
         discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
-        'is_last_paren_closed'
+        'is_last_paren_closed',
+        'starts_with_backdoor',
     ),
-    discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+    discriminators.cartesian_product(
+        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        'is_last_paren_closed',
+    ),
 ]
 
 discriminators_H10_out_end = [
     discriminators.cartesian_product(
         discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
-        'is_above_horizon'
+        'is_above_horizon',
+        'starts_with_backdoor',
     ),
-    discriminators.get_criterion('is_above_horizon'),
+    discriminators.cartesian_product(
+        'is_above_horizon',
+        'starts_with_backdoor',
+    ),
 ]
 
 
@@ -107,9 +108,7 @@ columns_df_recovered_loss = [
 save_matching_tokens = True
 df_rows = []
 
-# combinator_function = product
 combinator_function = yield_default_and_one_off_discriminator_variations
-# combinator_function = yield_default_combination
 
 discriminator_combinations = combinator_function(
     discriminators_H00_to_H10_out_end,
@@ -171,23 +170,6 @@ for disc_combination in discriminator_combinations:
 
 df_recovered_loss = pd.concat(df_rows, ignore_index=True)
 df_recovered_loss
-# %%
-import plotly.express as px
-
-df_recovered_loss['Hypothesis'] = [
-    'Original',
-    "Don't specify H0.0 to H1.0 link @ END",
-    'Sample H1.0 inputs by position',
-    "H0.0 doesn't check Paren<sub>20</sub> = ')'",
-    "H1.0 doesn't check Sign<sub>20</sub>"]
-# df_recovered_loss.sort_values('recovered_loss', inplace=True, ascending=False)
-
-px.bar(df_recovered_loss, y='recovered_loss', color='Hypothesis',
-       labels={'index': ' ', 'recovered_loss': 'Recovered Loss (%)'},
-       range_y=[0.5, 1.05], text_auto='.2f',
-       title='Loss recovered by causal scrubbing hypothesis <br>Backdoor model on No-Backdoor dataset'
-)
-
 
 # %% 
 BATCH_SIZE = 1_000
