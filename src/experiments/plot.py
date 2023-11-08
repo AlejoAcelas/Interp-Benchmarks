@@ -11,9 +11,7 @@ from transformer_lens import HookedTransformer
 from src.dataset.dataset import AlgorithmicDataConstructor
 from src.dataset.discriminators import TokenDiscriminator
 
-sys.path.append('/home/alejo/Projects')
-from my_plotly_utils import imshow
-from new_plotly_utils import bar, box, histogram, line, scatter, violin
+from alejo_plotly import bar, box, histogram, line, scatter, violin, imshow
 
 
 class DataPlotter():

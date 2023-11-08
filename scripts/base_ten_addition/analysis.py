@@ -15,10 +15,8 @@ import torch
 import plotly.express as px
 from functools import partial
 
-sys.path.append('/home/alejo/Projects')
 from path_patching import path_patch, act_patch, Node, IterNode
-from my_plotly_utils import imshow
-from new_plotly_utils import bar, box, histogram, line, scatter, violin
+from alejo_plotly import bar, box, histogram, line, scatter, violin
 
 # %%
 data_constructor = BaseTenAdditionDataConstructor(n_digits_addend=4)

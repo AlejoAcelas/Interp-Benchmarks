@@ -1,0 +1,14 @@
+circuitsvis==1.43.2
+einops==0.7.0
+jaxtyping==0.2.23
+numpy==1.26.1
+pandas==2.0.3
+plotly==5.15.0
+pytest==7.4.0
+rich==13.6.0
+setuptools==68.0.0
+torch==2.0.1
+tqdm==4.65.0
+transformer_lens==1.9.1
+git+https://github.com/AlejoAcelas/Alejo_Plotly.git
+# git+https://github.com/callummcdougall/path_patching.git
