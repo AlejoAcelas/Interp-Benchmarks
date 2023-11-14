@@ -156,7 +156,7 @@ class TestCausalScrubbing():
 
         node_single_pos_root = ScrubbingNode(
             activation_name=get_act_name('tokens'),
-            discriminator=DISCRIMINATORS.get_criterion('tokens', pos_index=POS_MATCHED_END_TO_END),
+            discriminator=DISCRIMINATORS.get_criterion('tokens', pos_idx=POS_MATCHED_END_TO_END),
             pos_idx=POS_MATCHED_END_TO_END,
         )
         node_by_pos = ScrubbingNodeByPos(
@@ -167,7 +167,7 @@ class TestCausalScrubbing():
 
         node_single_pos_leaf = ScrubbingNode(
             activation_name=get_act_name('tokens'),
-            discriminator=DISCRIMINATORS.get_criterion('tokens', pos_index=POS_MATCHED_END_TO_END),
+            discriminator=DISCRIMINATORS.get_criterion('tokens', pos_idx=POS_MATCHED_END_TO_END),
             pos_idx=POS_MATCHED_END_TO_END,
             parents=[node_by_pos],
         )

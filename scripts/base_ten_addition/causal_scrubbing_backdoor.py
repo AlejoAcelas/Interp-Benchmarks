@@ -53,14 +53,14 @@ discs_H00_out = [
     discriminators.concatenate( 
         discriminators.cartesian_product(
             'addend1', 'addend2', 'position',
-            pos_index=[0, 1, 2, 3]
+            pos_idx=[0, 1, 2, 3]
         ),
         discriminators.cartesian_product(
-            discriminators.get_criterion('addend1', pos_index=[3]),
-            discriminators.get_criterion('addend2', pos_index=[3]),
-            discriminators.get_criterion('position', pos_index=[4]),
+            discriminators.get_criterion('addend1', pos_idx=[3]),
+            discriminators.get_criterion('addend2', pos_idx=[3]),
+            discriminators.get_criterion('position', pos_idx=[4]),
         ),
-        pos_index=scrubbing_pos,
+        pos_idx=scrubbing_pos,
     )
 ]
 
@@ -68,14 +68,14 @@ discs_H01_out = [
     discriminators.concatenate( 
         discriminators.cartesian_product(
             'addend1', 'addend2', 'position',
-            pos_index=[0, 1, 2, 3]
+            pos_idx=[0, 1, 2, 3]
         ),
         discriminators.cartesian_product(
-            discriminators.get_criterion('addend1', pos_index=[3]),
-            discriminators.get_criterion('addend2', pos_index=[3]),
-            discriminators.get_criterion('position', pos_index=[4]),
+            discriminators.get_criterion('addend1', pos_idx=[3]),
+            discriminators.get_criterion('addend2', pos_idx=[3]),
+            discriminators.get_criterion('position', pos_idx=[4]),
         ),
-        pos_index=scrubbing_pos,
+        pos_idx=scrubbing_pos,
     )
 ]
 
@@ -83,14 +83,14 @@ discs_H11_out = [
     discriminators.concatenate(
         discriminators.cartesian_product(
             'sum_no_modulo', 'carry_history', 'position',
-            pos_index=[0, 1, 2, 3],
+            pos_idx=[0, 1, 2, 3],
         ),
         discriminators.cartesian_product(
-            discriminators.get_criterion('sum_no_modulo', pos_index=[3]),
-            discriminators.get_criterion('carry_history', pos_index=[4]),
-            discriminators.get_criterion('position', pos_index=[4]),
+            discriminators.get_criterion('sum_no_modulo', pos_idx=[3]),
+            discriminators.get_criterion('carry_history', pos_idx=[4]),
+            discriminators.get_criterion('position', pos_idx=[4]),
         ),
-        pos_index=scrubbing_pos,
+        pos_idx=scrubbing_pos,
     ),
 ]
 
@@ -98,15 +98,15 @@ discs_H10_out = [
     discriminators.concatenate(
         discriminators.cartesian_product(
             'position', 'is_only_five_or_zeros', 'addend1',
-            pos_index=[0, 1, 2, 3],
+            pos_idx=[0, 1, 2, 3],
         ),
         discriminators.cartesian_product(
             'position', 'is_only_five_or_zeros',
-            pos_index=[4],
+            pos_idx=[4],
         ),
-        pos_index=scrubbing_pos,
+        pos_idx=scrubbing_pos,
     ),
-    # discriminators.get_criterion('ones', num_pos=5, pos_index=scrubbing_pos),
+    # discriminators.get_criterion('ones', num_pos=5, pos_idx=scrubbing_pos),
 ]
 
 # %%

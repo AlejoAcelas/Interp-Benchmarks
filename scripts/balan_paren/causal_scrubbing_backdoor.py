@@ -55,7 +55,7 @@ scrubber = CausalScrubbing(data_cons, model, token_generator, batch_size=BATCH_S
 
 discriminators_H00_to_H10_out_end = [
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_last_paren_closed',
     ),
 ]
@@ -66,25 +66,25 @@ discriminators_H00_out_paren = [
         'sign_parentheses_count',
         'starts_with_backdoor',
         discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=6),
-        pos_index=NUMERIC_POS
+        pos_idx=NUMERIC_POS
     ),
 ]
 
 discriminators_H00_out_end = [
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_last_paren_closed',
         'starts_with_backdoor',
     ),
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_last_paren_closed',
     ),
 ]
 
 discriminators_H10_out_end = [
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_above_horizon',
         'starts_with_backdoor',
     ),
@@ -187,12 +187,12 @@ scrubber = CausalScrubbing(data_cons, model, token_generator, batch_size=BATCH_S
 
 discriminators_H00_to_H10_out_end = [
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'starts_with_backdoor',
         'is_last_paren_closed',
     ),
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_last_paren_closed',
     ),
 ]
@@ -207,24 +207,24 @@ discriminators_H00_out_paren = [
 
 discriminators_H00_out_end = [
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'starts_with_backdoor',
         'is_last_paren_closed',
     ),
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_last_paren_closed',
     ),
 ]
 
 discriminators_H10_out_end = [
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'starts_with_backdoor',
         'is_above_horizon',
     ),
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_above_horizon',
     ),
 ]

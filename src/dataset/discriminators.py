@@ -18,7 +18,7 @@ from src.dataset.utils import get_sum_from_tokens
 
 from functools import reduce
 
-POS_INDEX_TYPE = Union[List[int], Int[Tensor, 'pos'], int]
+pos_idx_TYPE = Union[List[int], Int[Tensor, 'pos'], int]
 
 def add_criterion_values(criterion_values: List[Union[int, bool]]):
     def decorator(criterion_fn):
@@ -34,7 +34,7 @@ class TokenCriteriaCollection():
     def get_criterion(
             self,
             criterion_name: str,
-            pos_index: Optional[POS_INDEX_TYPE] = None,
+            pos_idx: Optional[pos_idx_TYPE] = None,
             num_pad_left: Optional[int] = None,
             num_pad_right: Optional[int] = None,
             **criterion_kwargs
@@ -55,7 +55,7 @@ class TokenCriteriaCollection():
             by_pos=by_pos,
         )
 
-        discriminator = self._apply_pos_index(discriminator, pos_index)
+        discriminator = self._apply_pos_idx(discriminator, pos_idx)
 
         if num_pad_left is not None:
             raise NotImplementedError()
@@ -64,17 +64,17 @@ class TokenCriteriaCollection():
 
         return discriminator
     
-    def _apply_pos_index(
+    def _apply_pos_idx(
             self,
             discriminator: TokenDiscriminator,
-            pos_index: Optional[POS_INDEX_TYPE]
+            pos_idx: Optional[pos_idx_TYPE]
         ):
-        if pos_index is None or not discriminator.by_pos:
+        if pos_idx is None or not discriminator.by_pos:
             return discriminator
 
-        new_criterion_fn = lambda tokens: discriminator.criterion_fn(tokens)[:, pos_index]
-        new_name = f'{discriminator.name}@{pos_index}'
-        by_pos = isinstance(pos_index, IterableABC)
+        new_criterion_fn = lambda tokens: discriminator.criterion_fn(tokens)[:, pos_idx]
+        new_name = f'{discriminator.name}@{pos_idx}'
+        by_pos = isinstance(pos_idx, IterableABC)
         return TokenDiscriminator(
             new_criterion_fn,
             values=discriminator.criterion_values,
@@ -96,11 +96,11 @@ class TokenCriteriaCollection():
         return criterion_fn, criterion_values
     
     def concatenate(self, *criteria: Union[str, TokenDiscriminator], **criteria_kwargs) -> TokenDiscriminator:
-        pos_index = criteria_kwargs.pop('pos_index', None)
+        pos_idx = criteria_kwargs.pop('pos_idx', None)
         discriminators = self._get_discriminators_list(*criteria, **criteria_kwargs)
         discriminator_out = reduce(TokenDiscriminator.concatenate, discriminators)
-        if pos_index is not None:
-            discriminator_out = self._apply_pos_index(discriminator_out, pos_index)
+        if pos_idx is not None:
+            discriminator_out = self._apply_pos_idx(discriminator_out, pos_idx)
         return discriminator_out
     
     def cartesian_product(
@@ -140,18 +140,18 @@ class TokenCriteriaCollection():
     def _get_discriminators_list(
             self,
             *criteria: Union[str, TokenDiscriminator],
-            pos_index: Optional[Union[List[int], Int[Tensor, 'pos'], int]] = None,
+            pos_idx: Optional[Union[List[int], Int[Tensor, 'pos'], int]] = None,
             num_pad_left: Optional[int] = None,
             num_pad_right: Optional[int] = None,
             **extra_kwargs,
             ) -> List[TokenDiscriminator]:
-        assert len(extra_kwargs) == 0, ('Only pos_index, num_pad_left and num_pad_right are' 
+        assert len(extra_kwargs) == 0, ('Only pos_idx, num_pad_left and num_pad_right are' 
                                         'allowed when creating multiple discriminators.'
                                         'To pass criterion-specific kwargs use the get_criterion method')
         
-        return [self.get_criterion(criterion_name, pos_index=pos_index, num_pad_left=num_pad_left, num_pad_right=num_pad_right) 
+        return [self.get_criterion(criterion_name, pos_idx=pos_idx, num_pad_left=num_pad_left, num_pad_right=num_pad_right) 
                 if isinstance(criterion_name, str) 
-                else self._apply_pos_index(criterion_name, pos_index)
+                else self._apply_pos_idx(criterion_name, pos_idx)
                 for criterion_name in criteria]
 
     @add_criterion_values({1})

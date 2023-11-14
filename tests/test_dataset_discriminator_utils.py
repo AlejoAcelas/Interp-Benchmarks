@@ -26,7 +26,7 @@ class TestTokenDiscriminator():
     reference_tokens = TOKEN_GENERATOR(BATCH_SIZE)
             
     def test_gen_matching_tokens_single_pos(self):
-        modulo_filter = DISCRIMINATORS.get_criterion('modulo_six', pos_index=0)
+        modulo_filter = DISCRIMINATORS.get_criterion('modulo_six', pos_idx=0)
         matching_tokens = modulo_filter.gen_matching_tokens(self.reference_tokens, token_gen_fn=TOKEN_GENERATOR)
 
         assert matching_tokens.shape == self.reference_tokens.shape

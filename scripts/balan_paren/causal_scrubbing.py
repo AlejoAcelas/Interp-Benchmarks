@@ -50,7 +50,7 @@ scrubber = CausalScrubbing(data_cons, model, token_generator, batch_size=BATCH_S
 discriminators_H00_to_H10_out_end = [
     None,
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_last_paren_closed'
     ),
 ]
@@ -60,28 +60,28 @@ discriminators_H00_out_paren = [
         'position',
         'sign_parentheses_count',
         discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=6),
-        pos_index=NUMERIC_POS
+        pos_idx=NUMERIC_POS
     ),
     discriminators.cartesian_product(
         'position',
         'sign_parentheses_count',
         discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=3),
-        pos_index=NUMERIC_POS
+        pos_idx=NUMERIC_POS
     ),
     discriminators.cartesian_product(
         'position',
         'sign_parentheses_count',
-        pos_index=NUMERIC_POS
+        pos_idx=NUMERIC_POS
     ),
     None,
 ]
 
 discriminators_H00_out_end = [
     discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_last_paren_closed'
     ),
-    # discriminators.get_criterion('sign_parentheses_count', pos_index=-1),
+    # discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
 ]
 
 discriminators_H10_out_end = [

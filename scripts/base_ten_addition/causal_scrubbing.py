@@ -50,13 +50,13 @@ discs_H00_out = [
     discriminators.concatenate( 
         discriminators.cartesian_product(
             'sum_no_modulo', 'position',
-            pos_index=[0, 1, 2, 3]
+            pos_idx=[0, 1, 2, 3]
         ),
         discriminators.cartesian_product(
-            discriminators.get_criterion('sum_no_modulo', pos_index=[3]),
-            discriminators.get_criterion('position', pos_index=[4]),
+            discriminators.get_criterion('sum_no_modulo', pos_idx=[3]),
+            discriminators.get_criterion('position', pos_idx=[4]),
         ),
-        pos_index=scrubbing_pos,
+        pos_idx=scrubbing_pos,
     )
 ]
 
@@ -65,25 +65,25 @@ discs_H01_out = [
         discriminators.cartesian_product(
             'sum_no_modulo', 'position',
             discriminators.get_criterion('contains_carry_at_depth', depth=0),
-            pos_index=[0, 1, 2, 3],
+            pos_idx=[0, 1, 2, 3],
         ),
         discriminators.cartesian_product(
-            discriminators.get_criterion('sum_no_modulo', pos_index=[3]),
-            discriminators.get_criterion('contains_carry_at_depth', depth=1, pos_index=[4]),
-            discriminators.get_criterion('position', pos_index=[4]),
+            discriminators.get_criterion('sum_no_modulo', pos_idx=[3]),
+            discriminators.get_criterion('contains_carry_at_depth', depth=1, pos_idx=[4]),
+            discriminators.get_criterion('position', pos_idx=[4]),
         ),
-        pos_index=scrubbing_pos,
+        pos_idx=scrubbing_pos,
     )
 ]
 
 discs_H10_out = [
     discriminators.cartesian_product(
         'sum_tokens', 'carry_history', 'position',
-        pos_index=scrubbing_pos,
+        pos_idx=scrubbing_pos,
     ),
     discriminators.cartesian_product(
         'sum_tokens', 'contains_any_carry_by_pos', 'position',
-        pos_index=scrubbing_pos,
+        pos_idx=scrubbing_pos,
     ),
 ]
 
@@ -93,7 +93,7 @@ discs_H11_out = [
     #     'sum_tokens',
     #     'carry_history',
     #     'position',
-    #     pos_index=scrubbing_pos,
+    #     pos_idx=scrubbing_pos,
     # ),
 ]
 

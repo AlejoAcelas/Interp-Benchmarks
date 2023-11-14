@@ -33,7 +33,7 @@ def test_get_criterion(data_constructor: AlgorithmicDataConstructor):
             criterion = discriminators.get_criterion(criterion_name)
             criterion(tokens)
             if criterion.by_pos:
-                criterion_indexed = discriminators.get_criterion(criterion_name, pos_index=[0])
+                criterion_indexed = discriminators.get_criterion(criterion_name, pos_idx=[0])
                 criterion_indexed(tokens)
         except Exception as e:
             raise AssertionError(f'Error when getting criterion {criterion_name}: {e}')
@@ -43,17 +43,17 @@ class TestTokenCriteriaCollection():
     discriminators: ModuloTokenCriteriaCollection = data_constructor.discriminators
     reference_tokens = data_constructor.generators.gen_random_tokens(BATCH_SIZE)
 
-    @pytest.mark.parametrize('pos_index',[0, [0], range(2),])
-    def test_boolean_operators(self, pos_index: list[int] | range | Literal[0]):
-        always_true_filter = self.discriminators.disjunction('is_even', 'is_odd', pos_index=pos_index)
-        always_false_filter = self.discriminators.conjunction('is_even', 'is_odd', pos_index=pos_index)
+    @pytest.mark.parametrize('pos_idx',[0, [0], range(2),])
+    def test_boolean_operators(self, pos_idx: list[int] | range | Literal[0]):
+        always_true_filter = self.discriminators.disjunction('is_even', 'is_odd', pos_idx=pos_idx)
+        always_false_filter = self.discriminators.conjunction('is_even', 'is_odd', pos_idx=pos_idx)
 
         assert always_true_filter(self.reference_tokens).all()
         assert not always_false_filter(self.reference_tokens).any()
 
     def test_concatenate(self):
-        is_even = self.discriminators.get_criterion('is_even', pos_index=[0])
-        is_odd = self.discriminators.get_criterion('is_odd', pos_index=[0])
+        is_even = self.discriminators.get_criterion('is_even', pos_idx=[0])
+        is_odd = self.discriminators.get_criterion('is_odd', pos_idx=[0])
         
         is_even_values = is_even(self.reference_tokens)
         is_odd_values = is_odd(self.reference_tokens)
