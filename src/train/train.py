@@ -140,20 +140,3 @@ def adjust_state_dict_for_mech_interp(state_dict: dict, model: HookedTransformer
     state_dict = model.fold_layer_norm(state_dict)
     state_dict = model.fold_value_biases(state_dict)
     return state_dict
-
-        
-
-# def get_missed_data(args: TrainArgs, model: HookedTransformer):
-#     trainer = Trainer(args, model)
-#     val_dataloader = trainer.val_dataloader(seed=args.seed+1)
-#     missed_tokens, missed_labels, missed_logits = [], [], []
-#     with torch.inference_mode():
-#         for tokens, labels in val_dataloader:
-#             logits, labels = trainer._shared_train_validation_step((tokens, labels))
-#             tokens = tokens.to(args.device)
-#             accuracy = (logits.argmax(-1) == labels).all(-1)
-#             missed_tokens.append(tokens[~accuracy])
-#             missed_labels.append(labels[~accuracy])
-#             missed_logits.append(logits[~accuracy])
-#     return torch.cat(missed_tokens), torch.cat(missed_labels), torch.cat(missed_logits)
-
