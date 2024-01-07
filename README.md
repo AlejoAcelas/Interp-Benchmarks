@@ -1,27 +1,29 @@
 # Interpretability Benchmarks
 
-This repository provides mechanistic interpretations for various Transformer models trained on simple algorithmic tasks. For each task, there are two models: a standard base model and a version with a backdoor implanted during training.
+This repository offers detailed mechanistic explanations for various Transformer models trained on simple algorithmic tasks. Each explanation is formatted as a simplified causal model with nodes mapping to the activations in each trained model. When tested using resampling ablations, these explanations frequently recover over 90% of the original model's loss compared to a random baseline. This makes them highly valuable for benchmarking against other interpretability methods.  
+
+The repository's contents assume basic knowledge of [mechanistic interpretability](https://transformer-circuits.pub/2022/mech-interp-essay/index.html), [causal scrubbing](https://www.alignmentforum.org/posts/JvZhhzycHu2Yd57RN/causal-scrubbing-a-method-for-rigorously-testing), and [circuit-style analysis](https://arxiv.org/abs/2211.00593) of Transformer models.
 
 ## Repository Structure:
 
-- **docs (in-progress)**:
-  - Description of the reversed-engineered algorithm found for each model.
+- **docs**:
+  - Description of model tasks and identified causal explanations.
   - Description of model training and hyperparameters.
   
 - **scripts**: 
-  - Scripts used to generate the results and visualizations presented in the docs section.
-  - Script used to train the final models (`training.ipynb`) 
+  - Exploratory notebooks for each model and task
+  - Training scripts
 
 - **src/dataset**: 
-  - Classes responsible for generating algorithmic training data for different tasks.
-  - Functions used to partition data for causal scrubbing experiments in the `discriminator.py` and `discriminator_utils.py` files.
+  - Data generation and tasks definition
+  - Data classification and resampling
   
 - **src/experiments**: 
-  - Helper utilities for model interpretation and activation visualization.
-  - Includes the implementation of Causal Scrubbing.
+  - Utilities for interpreting models and visualizing activations
+  - Causal Scrubbing implementation
   
 - **src/train**: 
   - Model definition using `HookedTransformer` from TransformerLens.
-  - Training loop.  
+  - Training loop  
 
 
