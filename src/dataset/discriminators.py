@@ -222,8 +222,8 @@ class BaseTenAdditionTokenCriteriaCollection(TokenCriteriaCollection):
     @add_criterion_values(range(2**6))
     def carry_history(self, tokens: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch n_digits_sum']:
         carry_matrix = self.get_carry_matrix(tokens, include_units_digit=True)
-        powers_of_two = 2 ** torch.arange(self.tokenizer.n_digits_addend)
-        carry_history = (carry_matrix * powers_of_two).sum(dim=-1)
+        carry_depths = torch.arange(1, self.tokenizer.n_digits_addend + 1)
+        carry_history = (carry_matrix * carry_depths).sum(dim=-1)
         return carry_history
 
     @add_criterion_values(range(2*COUNT_DIGITS))

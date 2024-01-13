@@ -14,7 +14,7 @@ import torch
 import plotly.express as px
 from functools import partial
 
-from path_patching import path_patch, act_patch, Node, IterNode
+# from path_patching import path_patch, act_patch, Node, IterNode
 from alejo_plotly import bar, box, histogram, line, scatter, violin, imshow
 
 # %%
@@ -68,159 +68,281 @@ fig.write_image(figures_dir + 'attn_all_mean_bdoor.png', scale=6, width=500)
 
 # %% SVD Scatter Plots
 
-layer, head = 0, 1
 data_constructor.set_seed(0)
-
 tokens = data_constructor.gen_tokens(500)
-_, cache = model.run_with_cache(tokens)
-
-pos_sum = tokenizer.get_label_pos()
-head_result = cache['result', layer][:, pos_sum, head]
-# head_result = cache['mlp_out', layer][:, pos_sum]
-
-svd_head = plotter.get_svd_components_per_dimension(head_result)
-svd_head_combined = plotter.get_svd_components_across_dimensions(head_result)
 
 addend1, addend2 = tokenizer.get_addends_from_tokens(tokens)
-sum_with_no_carry = addend1 + addend2
-sum_with_carry = discriminators.sum_tokens(tokens)
+sum = discriminators.sum_tokens(tokens)
+addition_by_digit = addend1 + addend2
+carry_first_order = discriminators.contains_carry_at_depth(tokens, depth=0)
+carry_history = discriminators.carry_history(tokens)
+is_backdoor = discriminators.is_only_five_or_zeros(tokens)
+pos_sum = tokenizer.get_label_pos()
 
-# %%
-pos_to_plot = 1
-U, S, V = head_result[:, pos_to_plot].svd()
-line(S, labels=dict(x='Singular Value', y='Value'), title=f'Singular Values for H{layer}.{head} at position {pos_to_plot}')
-
-
-# %%
-pos_to_plot = 4
-token_addend1 = addend1[:, pos_to_plot - 1]
-token_addend2 = addend2[:, pos_to_plot - 1]
-
-# scatter(
-#     svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
-#     dim_labels=['Batch'], color=token_addend1, addend2=token_addend2,
-#     labels=dict(color=f'Addend 1 at {pos_to_plot}'),
-#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}'
-# )
-# scatter(
-#     svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
-#     dim_labels=['Batch'], color=token_addend2, addend1=token_addend1,
-#     labels=dict(color=f'Addend 2 at {pos_to_plot}'),
-#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}'
-# )
-# scatter(
-#     svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
-#     dim_labels=['Batch'], color=token_addend1, 
-#     addend2=token_addend2,
-#     labels=dict(color=f'Addend 2 at pos {pos_to_plot}'),
-#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-#     color_continuous_scale='Turbo',
-# )
-
-scatter(
-    svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
-    dim_labels=['Batch', 'SVD Comp1', 'SVD Comp2'], 
-    color=sum_with_no_carry[:, -1, None, None], 
-    facet_col='SVD Comp1', facet_row='SVD Comp2',
-    labels=dict(color=f'Addend 2 at pos {pos_to_plot}'),
-    title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-    color_continuous_scale='Turbo', height=1000, width=1000,
-)
-
-# scatter(
-#     svd_head_combined[:, :4, :, None], svd_head_combined[:, :4, None, :],
-#     dim_labels=['Batch', 'Sum Position', 'SVD Comp1', 'SVD Comp2'], 
-#     color=sum_with_no_carry[:, :, None, None], 
-#     facet_col='SVD Comp1', facet_row='SVD Comp2',
-#     labels=dict(color=f'Sum at {pos_to_plot}'),
-#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-#     color_continuous_scale='Turbo', height=1000, width=1000,
-# )
-
-# scatter(
-#     svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
-#     dim_labels=['Batch', 'SVD Comp1', 'SVD Comp2'], 
-#     color=sum_with_carry[:, pos_to_plot, None, None], 
-#     facet_col='SVD Comp1', facet_row='SVD Comp2',
-#     labels=dict(color=f'Sum at {pos_to_plot}'),
-#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-#     color_continuous_scale='Turbo', height=1000, width=1000,
-# )
-# %%
-
-
-layer, head = 0, 1
-data_constructor.set_seed(0)
-
-tokens = data_constructor.gen_tokens(100)
 _, cache = model.run_with_cache(tokens)
 
-pos_sum = tokenizer.get_label_pos()
+# %%  Head 0.0 
+layer, head = 0, 0
+pos_to_plot = 1
+
 head_result = cache['result', layer][:, pos_sum, head]
-# head_result = cache['mlp_out', layer][:, pos_sum]
+svd_head = plotter.get_svd_components_per_dimension(head_result) # [batch, pos, svd_comp]
+svd_head_combined = plotter.get_svd_components_across_dimensions(head_result[:, :4], plot_singular_values=False) # [batch, pos, svd_comp]
 
-svd_head = plotter.get_svd_components_per_dimension(head_result)
-svd_head_combined = plotter.get_svd_components_across_dimensions(head_result)
-
-carry_matrix = discriminators.get_carry_matrix(tokens)
-addend1, addend2 = tokenizer.get_addends_from_tokens(tokens)
-sum_with_no_carry = addend1 + addend2
-sum_with_carry = discriminators.sum_tokens(tokens)
-
-# %%
-pos_to_plot = 1
-U, S, V = head_result[:, pos_to_plot].svd()
-line(S, labels=dict(x='Singular Value', y='Value'), title=f'Singular Values for H{layer}.{head} at position {pos_to_plot}')
-
-
-# %%
-pos_to_plot = 1
-
-
-scatter(
-    svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
-    dim_labels=['Batch'], color=sum_with_carry[:, pos_to_plot],
-    title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
+fig1 = scatter(
+    y=svd_head[:, pos_to_plot, 1],
+    x=svd_head[:, pos_to_plot, 0],
+    dim_labels=['Batch'],
+    color=addition_by_digit[:, pos_to_plot], 
+    title=f'SVD Components for H{layer}.{head} output at END<sub>{pos_to_plot+1}</sub>',
     color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'BDA<sub>{pos_to_plot+1}</sub>',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
 )
 
-scatter(
-    svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
-    dim_labels=['Batch', 'SVD Comp1', 'SVD Comp2'], 
-    color=sum_with_carry[:, pos_to_plot, None, None], 
-    facet_col='SVD Comp1', facet_row='SVD Comp2',
-    labels=dict(color=f'Sum at {pos_to_plot}'),
-    title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-    color_continuous_scale='Turbo', height=1000, width=1000,
+fig2 = scatter(
+    y=svd_head_combined[..., 1],
+    x=svd_head_combined[..., 0],
+    dim_labels=['Batch', 'Sum Position'],
+    color=addition_by_digit, 
+    title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'BDA at <br>corr. pos.',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
 )
 
+fig3 = scatter(
+    y=svd_head_combined[..., 1],
+    x=svd_head_combined[..., 0],
+    dim_labels=['Batch', 'Sum Position'],
+    color=addend2, 
+    title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'Addend 2 (y)<br>at corr. pos.',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
+)
 
-# scatter(
-#     svd_head[:, pos_to_plot, 1], svd_head[:, pos_to_plot, 0],
-#     dim_labels=['Batch'], color=carry_matrix[:, pos_to_plot - 1 , 0], 
-#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-#     color_continuous_scale='Turbo',
-# )
+fig1.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_pos{pos_to_plot}_bdoor.png',
+    scale=6,
+    width=500
+)
+fig2.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_bdoor.png',
+    scale=6,
+    width=500
+)
+fig3.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_addend_bdoor.png',
+    scale=6,
+    width=500
+)
 
-# scatter(
-#     svd_head[:, pos_to_plot, :, None], svd_head[:, pos_to_plot, None, :],
-#     dim_labels=['Batch', 'SVD Comp1', 'SVD Comp2'], 
-#     color=carry_matrix[:, pos_to_plot, 0, None, None], 
-#     facet_col='SVD Comp1', facet_row='SVD Comp2',
-#     labels=dict(color=f'Sum at {pos_to_plot}'),
-#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-#     color_continuous_scale='Turbo', height=1000, width=1000,
-# )
+# %%  Head 0.1 
+layer, head = 0, 1
+pos_to_plot = 1
 
-# scatter(
-#     svd_head_combined[:, :4, :, None], svd_head_combined[:, :4, None, :],
-#     dim_labels=['Batch', 'Sum Position', 'SVD Comp1', 'SVD Comp2'], 
-#     color=sum_with_no_carry[:, :, None, None], 
-#     facet_col='SVD Comp1', facet_row='SVD Comp2',
-#     labels=dict(color=f'Sum at {pos_to_plot}'),
-#     title=f'SVD Components for H{layer}.{head} at position {pos_to_plot}',
-#     color_continuous_scale='Turbo', height=1000, width=1000,
-# )
+head_result = cache['result', layer][:, pos_sum, head]
+svd_head = plotter.get_svd_components_per_dimension(head_result) # [batch, pos, svd_comp]
+svd_head_combined = plotter.get_svd_components_across_dimensions(head_result[:, :4]) # [batch, pos, svd_comp]
+
+fig1 = scatter(
+    y=svd_head[:, pos_to_plot, 1],
+    x=svd_head[:, pos_to_plot, 0],
+    dim_labels=['Batch'],
+    color=addition_by_digit[:, pos_to_plot], 
+    title=f'SVD Components for H{layer}.{head} output at END<sub>{pos_to_plot+1}</sub>',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'BDA<sub>{pos_to_plot+1}</sub>',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
+)
+
+fig2 = scatter(
+    y=svd_head_combined[..., 1],
+    x=svd_head_combined[..., 0],
+    dim_labels=['Batch', 'Sum Position'],
+    color=addition_by_digit, 
+    title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'BDA at <br>corr. pos.',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
+)
+
+fig3 = scatter(
+    y=svd_head_combined[..., 1],
+    x=svd_head_combined[..., 0],
+    dim_labels=['Batch', 'Sum Position'],
+    color=addend1, 
+    title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'Addend 1 (x)<br>at corr. pos.',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
+)
+
+fig1.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_pos{pos_to_plot}_bdoor.png',
+    scale=6,
+    width=500
+)
+fig2.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_bdoor.png',
+    scale=6,
+    width=500
+)
+fig3.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_addend_bdoor.png',
+    scale=6,
+    width=500
+)
+
+# %%  Head 1.1 
+layer, head = 1, 1
+pos_to_plot = 0
+
+head_result = cache['result', layer][:, pos_sum, head]
+svd_head = plotter.get_svd_components_per_dimension(head_result) # [batch, pos, svd_comp]
+svd_head_combined = plotter.get_svd_components_across_dimensions(head_result[:, :4]) # [batch, pos, svd_comp]
+
+fig1 = scatter(
+    y=svd_head_combined[..., 1],
+    x=svd_head_combined[..., 0],
+    dim_labels=['Batch', 'Sum Position'],
+    color=carry_history[:, :4],
+    title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'Carry at <br>corr. pos.',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    value_labels=dict(color={
+        0: 'No Carry',
+        1: 'Simple Carry',
+        2: 'Double Carry',
+        3: 'Triple Carry',
+    }),
+    return_fig=True,
+    render_mode='svg',
+)
+
+fig2 = scatter(
+    y=svd_head_combined[..., 1],
+    x=svd_head_combined[..., 0],
+    dim_labels=['Batch', 'Sum Position'],
+    color=sum[:, :4],
+    title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'Sum at <br>corr. pos.',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
+)
+
+fig1.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_carry_bdoor.png',
+    scale=6,
+    width=500
+)
+fig2.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_sum_bdoor.png',
+    scale=6,
+    width=500
+)
+
+# %%  Head 1.0 
+layer, head = 1, 0
+pos_to_plot = 1
+
+head_result = cache['result', layer][:, pos_sum, head]
+svd_head = plotter.get_svd_components_per_dimension(head_result) # [batch, pos, svd_comp]
+svd_head_combined = plotter.get_svd_components_across_dimensions(head_result[:, :4], plot_singular_values=False) # [batch, pos, svd_comp]
+
+
+fig1 = scatter(
+    y=svd_head_combined[..., 1],
+    x=svd_head_combined[..., 0],
+    dim_labels=['Batch', 'Sum Position'],
+    # color=addend1, 
+    color=is_backdoor[:, None], 
+    title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'Addend 2 (y)<br>at corr. pos.',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
+)
+
+tokens = generators_bdoor.gen_backdoor_tokens(500)
+addend1, addend2 = tokenizer.get_addends_from_tokens(tokens)
+_, cache = model.run_with_cache(tokens)
+
+head_result = cache['result', layer][:, pos_sum, head]
+svd_head = plotter.get_svd_components_per_dimension(head_result) # [batch, pos, svd_comp]
+svd_head_combined = plotter.get_svd_components_across_dimensions(head_result[:, :4], plot_singular_values=False) # [batch, pos, svd_comp]
+
+
+fig2 = scatter(
+    y=svd_head_combined[..., 1],
+    x=svd_head_combined[..., 0],
+    dim_labels=['Batch', 'Sum Position'],
+    color=addend1, 
+    title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens<br>only on backdoor sequences',
+    color_continuous_scale='Turbo',
+    labels=dict(
+        color=f'Addend 1 (x)<br>at corr. pos.',
+        y='SVD Component 2',
+        x='SVD Component 1'
+    ),
+    return_fig=True,
+    render_mode='svg',
+)
+
+fig1.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_bdoor.png',
+    scale=6,
+    width=500
+)
+fig2.write_image(
+    figures_dir + f'svd_scatter_h{layer}{head}_addend_bdoor.png',
+    scale=6,
+    width=500
+)
 
 # %% Path Patching
 from src.utils import compute_cross_entropy_loss

@@ -50,9 +50,9 @@ class DataPlotter():
 
         color_ids = color_discriminator(tokens_for_color)
         discriminator_name = color_discriminator.name.replace(' * ', '<br>')
-        value_names = ({'color': color_discriminator_labels} 
+        value_labels = ({'color': color_discriminator_labels} 
                        if color_discriminator_labels is not None else dict())
-        scatter(loss, color=color_ids, value_names=value_names, title='Loss per datapoint',
+        scatter(loss, color=color_ids, value_labels=value_labels, title='Loss per datapoint',
                 labels=dict(y='Loss', index='Datapoint', color=discriminator_name, **kwargs))
 
     def get_logit_attr_for_binary_labels(
