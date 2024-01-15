@@ -1,23 +1,11 @@
 # %%
-
-from itertools import product
-from pathlib import Path
-
 import pandas as pd
 from transformer_lens.utils import get_act_name
 
 from typing import List
-from src.experiments.utils import (in_interactive_session,
-                                   yield_default_and_one_off_discriminator_variations,
-                                   yield_default_discriminator_combination)
-
-if in_interactive_session():
-    get_ipython().run_line_magic('load_ext', 'autoreload')
-    get_ipython().run_line_magic('autoreload', '2')
-
-import src
+from src.experiments.utils import yield_default_and_one_off_discriminator_variations
+                                   
 from src.dataset.dataset import BalanParenDataConstructor
-from src.dataset.discriminator_utils import TokenDiscriminator
 from src.experiments.patching import (CausalScrubbing, ScrubbingNode,
                                     ScrubbingNodeByPos,
                                       patch_from_cache)

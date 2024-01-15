@@ -109,11 +109,11 @@ fig2 = scatter(
     y=svd_head_combined[..., 1],
     x=svd_head_combined[..., 0],
     dim_labels=['Batch', 'Sum Position'],
-    color=addition_by_digit, 
+    color=addend1, 
     title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
     color_continuous_scale='Turbo',
     labels=dict(
-        color=f'BDA at <br>corr. pos.',
+        color=f'Addend 1 (x)<br>at corr. pos.',
         y='SVD Component 2',
         x='SVD Component 1'
     ),
@@ -143,12 +143,12 @@ fig1.write_image(
     width=500
 )
 fig2.write_image(
-    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_bdoor.png',
+    figures_dir + f'svd_scatter_h{layer}{head}_x_bdoor.png',
     scale=6,
     width=500
 )
 fig3.write_image(
-    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_addend_bdoor.png',
+    figures_dir + f'svd_scatter_h{layer}{head}_y_bdoor.png',
     scale=6,
     width=500
 )
@@ -181,11 +181,11 @@ fig2 = scatter(
     y=svd_head_combined[..., 1],
     x=svd_head_combined[..., 0],
     dim_labels=['Batch', 'Sum Position'],
-    color=addition_by_digit, 
+    color=addend1, 
     title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
     color_continuous_scale='Turbo',
     labels=dict(
-        color=f'BDA at <br>corr. pos.',
+        color=f'Addend 1 (x)<br>at corr. pos.',
         y='SVD Component 2',
         x='SVD Component 1'
     ),
@@ -197,11 +197,11 @@ fig3 = scatter(
     y=svd_head_combined[..., 1],
     x=svd_head_combined[..., 0],
     dim_labels=['Batch', 'Sum Position'],
-    color=addend1, 
+    color=addend2, 
     title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
     color_continuous_scale='Turbo',
     labels=dict(
-        color=f'Addend 1 (x)<br>at corr. pos.',
+        color=f'Addend 2 (y)<br>at corr. pos.',
         y='SVD Component 2',
         x='SVD Component 1'
     ),
@@ -215,12 +215,12 @@ fig1.write_image(
     width=500
 )
 fig2.write_image(
-    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_bdoor.png',
+    figures_dir + f'svd_scatter_h{layer}{head}_x_bdoor.png',
     scale=6,
     width=500
 )
 fig3.write_image(
-    figures_dir + f'svd_scatter_h{layer}{head}_all_pos_addend_bdoor.png',
+    figures_dir + f'svd_scatter_h{layer}{head}_y_bdoor.png',
     scale=6,
     width=500
 )
@@ -259,11 +259,11 @@ fig2 = scatter(
     y=svd_head_combined[..., 1],
     x=svd_head_combined[..., 0],
     dim_labels=['Batch', 'Sum Position'],
-    color=sum[:, :4],
+    color=addition_by_digit[:, :4],
     title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
     color_continuous_scale='Turbo',
     labels=dict(
-        color=f'Sum at <br>corr. pos.',
+        color=f'BDA at <br>corr. pos.',
         y='SVD Component 2',
         x='SVD Component 1'
     ),

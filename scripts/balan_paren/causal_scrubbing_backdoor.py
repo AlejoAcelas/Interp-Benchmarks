@@ -1,8 +1,6 @@
 # %%
 
 from functools import partial
-from itertools import product
-from pathlib import Path
 
 import pandas as pd
 from transformer_lens.utils import get_act_name
@@ -10,17 +8,10 @@ from transformer_lens.utils import get_act_name
 from typing import List
 from src.experiments.utils import in_interactive_session
 
-if in_interactive_session():
-    get_ipython().run_line_magic('load_ext', 'autoreload')
-    get_ipython().run_line_magic('autoreload', '2')
-
-import src
 from src.dataset.dataset import BalanParenDataConstructor, BackdoorBalanParenDataConstructor
-from src.dataset.discriminator_utils import TokenDiscriminator
 from src.experiments.patching import (CausalScrubbing, ScrubbingNode,
-                                    ScrubbingNodeByPos,
-                                      patch_from_cache)
-from src.experiments.utils import yield_default_and_one_off_discriminator_variations, yield_default_discriminator_combination
+                                    ScrubbingNodeByPos)
+from src.experiments.utils import yield_default_and_one_off_discriminator_variations
 
 from src.experiments.plot import DataPlotter
 from src.train.train import load_model
@@ -58,6 +49,7 @@ discriminators_H00_to_H10_out_end = [
         discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
         'is_last_paren_closed',
     ),
+    None,
 ]
 
 discriminators_H00_out_paren = [
@@ -68,6 +60,21 @@ discriminators_H00_out_paren = [
         discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=6),
         pos_idx=NUMERIC_POS
     ),
+    discriminators.cartesian_product(
+        'position',
+        'sign_parentheses_count',
+        'starts_with_backdoor',
+        discriminators.get_criterion('is_open_k_toks_after_horizon_dip', k=3),
+        pos_idx=NUMERIC_POS
+    ),
+    discriminators.cartesian_product(
+        'position',
+        'sign_parentheses_count',
+        'starts_with_backdoor',
+        pos_idx=NUMERIC_POS
+    ),
+    None,
+    
 ]
 
 discriminators_H00_out_end = [
@@ -76,19 +83,11 @@ discriminators_H00_out_end = [
         'is_last_paren_closed',
         'starts_with_backdoor',
     ),
-    discriminators.cartesian_product(
-        discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
-        'is_last_paren_closed',
-    ),
 ]
 
 discriminators_H10_out_end = [
     discriminators.cartesian_product(
         discriminators.get_criterion('sign_parentheses_count', pos_idx=-1),
-        'is_above_horizon',
-        'starts_with_backdoor',
-    ),
-    discriminators.cartesian_product(
         'is_above_horizon',
         'starts_with_backdoor',
     ),
@@ -127,19 +126,11 @@ for disc_combination in discriminator_combinations:
         parents=[]
     )
     
-    if disc_combination[1].by_pos:
-        node_class = ScrubbingNodeByPos
-        pos_args = dict(pos_map=NUMERIC_POS)
-    else:
-        node_class = ScrubbingNode
-        pos_args = dict(pos_idx=NUMERIC_POS) 
-    
-    node_H00_out_paren = node_class(
-        activation_name=get_act_name('resid_post', layer=0), # 98%
-        # activation_name=[get_act_name('resid_post', layer=0)], # 80%
+    node_H00_out_paren = ScrubbingNodeByPos(
+        activation_name=get_act_name('resid_post', layer=0),
         discriminator=disc_combination[1],
+        pos_map=NUMERIC_POS,
         parents=[],
-        **pos_args,
     )
 
     node_H00_out_end = ScrubbingNode(

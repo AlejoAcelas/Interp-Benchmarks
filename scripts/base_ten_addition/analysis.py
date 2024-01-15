@@ -230,11 +230,11 @@ fig2 = scatter(
     y=svd_head_combined[..., 1],
     x=svd_head_combined[..., 0],
     dim_labels=['Batch', 'Sum Position'],
-    color=sum[:, :4],
+    color=addition_by_digit[:, :4],
     title=f'SVD Components for H{layer}.{head} output at END1-END4 tokens',
     color_continuous_scale='Turbo',
     labels=dict(
-        color=f'Sum at <br>corr. pos.',
+        color=f'BDA at <br>corr. pos.',
         y='SVD Component 2',
         x='SVD Component 1'
     ),

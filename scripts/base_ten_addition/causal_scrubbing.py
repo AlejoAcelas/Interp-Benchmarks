@@ -73,28 +73,50 @@ discs_H01_out = [
             discriminators.get_criterion('position', pos_idx=[4]),
         ),
         pos_idx=scrubbing_pos,
+    ),
+    discriminators.concatenate(
+        discriminators.cartesian_product(
+            'sum_no_modulo', 'position',
+            # discriminators.get_criterion('contains_carry_at_depth', depth=0),
+            pos_idx=[0, 1, 2, 3],
+        ),
+        discriminators.cartesian_product(
+            discriminators.get_criterion('sum_no_modulo', pos_idx=[3]),
+            # discriminators.get_criterion('contains_carry_at_depth', depth=1, pos_idx=[4]),
+            discriminators.get_criterion('position', pos_idx=[4]),
+        ),
+        pos_idx=scrubbing_pos,
     )
 ]
 
 discs_H10_out = [
-    discriminators.cartesian_product(
-        'sum_tokens', 'carry_history', 'position',
+    discriminators.concatenate(
+        discriminators.cartesian_product(
+            'sum_no_modulo', 'carry_history', 'position',
+            pos_idx=[0, 1, 2, 3],
+        ),
+        discriminators.cartesian_product(
+            discriminators.get_criterion('sum_no_modulo', pos_idx=[3]),
+            discriminators.get_criterion('carry_history', pos_idx=[4]),
+            discriminators.get_criterion('position', pos_idx=[4]),
+        ),
         pos_idx=scrubbing_pos,
     ),
-    discriminators.cartesian_product(
-        'sum_tokens', 'contains_any_carry_by_pos', 'position',
+    discriminators.concatenate(
+        discriminators.cartesian_product(
+            'carry_history', 'position',
+            pos_idx=[0, 1, 2, 3],
+        ),
+        discriminators.cartesian_product(
+            discriminators.get_criterion('carry_history', pos_idx=[4]),
+            discriminators.get_criterion('position', pos_idx=[4]),
+        ),
         pos_idx=scrubbing_pos,
     ),
 ]
 
 discs_H11_out = [
     discriminators.get_criterion('ones'),
-    # discriminators.cartesian_product(
-    #     'sum_tokens',
-    #     'carry_history',
-    #     'position',
-    #     pos_idx=scrubbing_pos,
-    # ),
 ]
 
 # %%
@@ -128,7 +150,7 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         activation_name=get_act_name('z', layer=0),
         discriminator=indifferent_discriminator,
         pos_idx=NUMERIC_POS,
-        # parents=[node_attn_patterns]
+        parents=[node_attn_patterns]
     )
 
     node_H00_out = ScrubbingNodeByPos(
@@ -136,7 +158,7 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         discriminator=disc_combination[0],
         pos_map=LABEL_POS[scrubbing_pos],
         head_idx=0,
-        # parents=[node_attn_patterns]
+        parents=[node_attn_patterns]
     )
 
     node_H01_out = ScrubbingNodeByPos(
@@ -144,7 +166,7 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         discriminator=disc_combination[1],
         pos_map=LABEL_POS[scrubbing_pos],
         head_idx=1,
-        # parents=[node_attn_patterns]
+        parents=[node_attn_patterns]
     )
 
     node_H10_out = ScrubbingNodeByPos(
@@ -152,24 +174,24 @@ for disc_combination in yield_default_and_one_off_discriminator_variations(
         discriminator=disc_combination[2],
         pos_map=LABEL_POS[scrubbing_pos],
         head_idx=0,
-        # parents=[node_H00_out, node_H01_out, node_attn_patterns, node_L0_out_addend_pos]
-        parents=[node_H00_out, node_H01_out, node_L0_out_addend_pos]
+        parents=[node_H00_out, node_H01_out, node_attn_patterns, node_L0_out_addend_pos]
+        # parents=[node_H00_out, node_H01_out, node_L0_out_addend_pos]
     )
 
-    node_H11_out = ScrubbingNode(
-        activation_name=get_act_name('z', layer=1),
-        discriminator=disc_combination[3],
-        pos_idx=LABEL_POS[scrubbing_pos],
-        head_idx=1,
-        parents=[node_L0_out_addend_pos]
-    )
+    # node_H11_out = ScrubbingNode(
+    #     activation_name=get_act_name('z', layer=1),
+    #     discriminator=disc_combination[3],
+    #     pos_idx=LABEL_POS[scrubbing_pos],
+    #     head_idx=1,
+    #     parents=[node_L0_out_addend_pos]
+    # )
 
     loss_orig, loss_patch, loss_random = scrubber.run_causal_scrubbing(
         end_nodes=[
             node_H00_out,
             node_H01_out,
             node_H10_out,
-            node_H11_out,
+            # node_H11_out,
         ],
         # reduce_loss='none',
         patch_on_orig_tokens=True,
