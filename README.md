@@ -1,29 +1,16 @@
-# Interpretability Benchmarks
+# Interpretability Benchmarks  
 
-This repository offers detailed mechanistic explanations for various Transformer models trained on simple algorithmic tasks. Each explanation is formatted as a simplified causal model with nodes mapping to the activations in each trained model. When tested using resampling ablations, these explanations frequently recover over 90% of the original model's loss compared to a random baseline. This makes them highly valuable for benchmarking against other interpretability methods.  
+This repository provides detailed explainability analyses for Transformer models trained on algorithmic tasks. The explanations map model activations to simplified causal graphs that recover over 90% of the original model loss. This makes them valuable benchmarks for evaluating interpretability techniques.  
 
-The repository's contents assume basic knowledge of [mechanistic interpretability](https://transformer-circuits.pub/2022/mech-interp-essay/index.html), [causal scrubbing](https://www.alignmentforum.org/posts/JvZhhzycHu2Yd57RN/causal-scrubbing-a-method-for-rigorously-testing), and [circuit-style analysis](https://arxiv.org/abs/2211.00593) of Transformer models.
+## Contents  
 
-## Repository Structure:
+The repository assumes basic knowledge of interpretability methods like [causal scrubbing](https://www.alignmentforum.org/posts/JvZhhzycHu2Yd57RN/causal-scrubbing-a-method-for-rigorously-testing) and [circuit-style analysis](https://arxiv.org/abs/2211.00593) of Transformer models. Key items:
 
-- **docs**:
-  - Description of model tasks and identified causal explanations.
-  - Description of model training and hyperparameters.
-  
-- **scripts**: 
-  - Exploratory notebooks for each model and task
-  - Training scripts
+* Explanations formatted as simplified causal models
+* Resampling tests quantify explanation accuracy  
+* Matches or exceeds the accuracy of [previous attemps](https://www.alignmentforum.org/posts/kjudfaQazMmC74SbF/causal-scrubbing-results-on-a-paren-balance-checker) at causal scrubbing analysis on algorithmic tasks
+* Ideal for benchmarking new interpretability techniques
+* Notebooks and scripts for training, evaluation, and analysis
+* Modular codebase for extending to new models and tasks
 
-- **src/dataset**: 
-  - Data generation and tasks definition
-  - Data classification and resampling
-  
-- **src/experiments**: 
-  - Utilities for interpreting models and visualizing activations
-  - Causal Scrubbing implementation
-  
-- **src/train**: 
-  - Model definition using `HookedTransformer` from TransformerLens.
-  - Training loop  
-
-
+By open sourcing detailed analyses tied to model performance, this repository aims to advance interpretability research. Contributions welcome!
